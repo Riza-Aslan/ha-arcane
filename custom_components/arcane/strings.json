@@ -1,0 +1,62 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Arcane",
+        "description": "Create an API key in Arcane under Settings → API Keys. Environment ID 0 is the local environment.",
+        "data": {
+          "url": "URL",
+          "api_key": "API key",
+          "environment_id": "Environment ID"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate",
+        "data": {
+          "api_key": "API key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach Arcane at this URL.",
+      "invalid_auth": "The API key was rejected."
+    },
+    "abort": {
+      "already_configured": "This Arcane environment is already configured.",
+      "reauth_successful": "Re-authentication successful."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "containers_running": {
+        "name": "Containers running"
+      },
+      "containers_stopped": {
+        "name": "Containers stopped"
+      },
+      "containers_total": {
+        "name": "Containers total"
+      },
+      "projects_running": {
+        "name": "Projects running"
+      },
+      "projects_stopped": {
+        "name": "Projects stopped"
+      },
+      "projects_total": {
+        "name": "Projects total"
+      },
+      "images_with_updates": {
+        "name": "Images with updates"
+      },
+      "image_update_errors": {
+        "name": "Image update check errors"
+      }
+    },
+    "button": {
+      "check_image_updates": {
+        "name": "Check image updates"
+      }
+    }
+  }
+}

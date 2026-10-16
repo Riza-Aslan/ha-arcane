@@ -1,0 +1,62 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mit Arcane verbinden",
+        "description": "API-Key in Arcane unter Einstellungen → API Keys anlegen. Environment-ID 0 ist die lokale Umgebung.",
+        "data": {
+          "url": "URL",
+          "api_key": "API-Key",
+          "environment_id": "Environment-ID"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Neu anmelden",
+        "data": {
+          "api_key": "API-Key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Arcane unter dieser URL nicht erreichbar.",
+      "invalid_auth": "Der API-Key wurde abgelehnt."
+    },
+    "abort": {
+      "already_configured": "Dieses Arcane-Environment ist schon eingerichtet.",
+      "reauth_successful": "Neu anmelden erfolgreich."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "containers_running": {
+        "name": "Container laufend"
+      },
+      "containers_stopped": {
+        "name": "Container gestoppt"
+      },
+      "containers_total": {
+        "name": "Container gesamt"
+      },
+      "projects_running": {
+        "name": "Projekte laufend"
+      },
+      "projects_stopped": {
+        "name": "Projekte gestoppt"
+      },
+      "projects_total": {
+        "name": "Projekte gesamt"
+      },
+      "images_with_updates": {
+        "name": "Images mit Updates"
+      },
+      "image_update_errors": {
+        "name": "Fehler bei Update-Prüfung"
+      }
+    },
+    "button": {
+      "check_image_updates": {
+        "name": "Image-Updates prüfen"
+      }
+    }
+  }
+}
