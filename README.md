@@ -1,5 +1,15 @@
 # Arcane for Home Assistant
 
+[![License](https://img.shields.io/github/license/Riza-Aslan/ha-arcane)](https://github.com/Riza-Aslan/ha-arcane/blob/main/LICENSE)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/Riza-Aslan)](https://github.com/sponsors/Riza-Aslan)
+
+## ❤️ Support
+
+If you find this integration useful, please consider supporting its development:
+
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-Riza--Aslan-ea4aaa?logo=github-sponsors&logoColor=white)](https://github.com/sponsors/Riza-Aslan)
+[![PayPal](https://img.shields.io/badge/PayPal-Donate-00457C?logo=paypal&logoColor=white)](https://www.paypal.com/paypalme/rizaaslan)
+
 Custom integration for [Arcane](https://getarcane.app), the Docker management UI. It talks to the Arcane REST API (`X-Api-Key`) and polls every 60 seconds.
 
 ## Entities
@@ -45,6 +55,10 @@ If the key is revoked or expires, Home Assistant starts a re-authentication flow
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements_test.txt && .venv/bin/pytest
 ```
+
+## Support
+
+If this saves you time, a sponsorship or donation (see the buttons at the top) keeps it maintained. Bug reports and PRs are just as welcome.
 
 ## License
 
