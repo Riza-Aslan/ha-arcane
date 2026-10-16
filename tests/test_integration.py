@@ -108,3 +108,15 @@ async def test_reauth_on_key_revoked(hass, server):
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert any(f["context"]["source"] == "reauth" for f in hass.config_entries.flow.async_progress())
+
+
+async def test_digest_update_shows_digests(hass, server, state):
+    state["containers"][0]["updateInfo"] = {
+        "hasUpdate": True, "updateType": "digest", "currentVersion": "latest",
+        "currentDigest": "sha256:aaaaaaaaaaaaffff", "latestDigest": "sha256:bbbbbbbbbbbbffff", "error": "",
+    }
+    await _setup(hass, server)
+    s = hass.states.get("update.arcane_container_web")
+    assert s.state == "on"
+    assert s.attributes["installed_version"] == "aaaaaaaaaaaa"
+    assert s.attributes["latest_version"] == "bbbbbbbbbbbb"

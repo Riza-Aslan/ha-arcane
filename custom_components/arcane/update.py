@@ -63,16 +63,21 @@ class ContainerUpdate(ArcaneEntity, UpdateEntity):
     @property
     def installed_version(self) -> str | None:
         info = self._info
+        if info.get("updateType") == "digest":
+            return _short(info.get("currentDigest")) or info.get("currentVersion")
         return info.get("currentVersion") or _short(info.get("currentDigest"))
 
     @property
     def latest_version(self) -> str | None:
         info = self._info
-        if not info or info.get("error"):
+        if not info or info.get("error") or not info.get("hasUpdate"):
             return self.installed_version
-        if not info.get("hasUpdate"):
-            return self.installed_version
-        return info.get("latestVersion") or _short(info.get("latestDigest")) or "update"
+        if info.get("updateType") == "digest":
+            latest = _short(info.get("latestDigest"))
+        else:
+            latest = info.get("latestVersion") or _short(info.get("latestDigest"))
+        # never equal to the installed value while an update is pending
+        return latest if latest and latest != self.installed_version else "update available"
 
     @property
     def title(self) -> str | None:

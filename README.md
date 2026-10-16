@@ -34,11 +34,13 @@ If the key is revoked or expires, Home Assistant starts a re-authentication flow
 - **Permissions:** the key acts as the Arcane user who created it. Switches, buttons and "Install" really start, stop, restart and redeploy things. Use a key of a user with only the rights you want Home Assistant to have.
 - **Update entities** only show what Arcane's own update check knows. Press "Check image updates" (or let Arcane's scheduler do it) to refresh.
 - Container and project entities are keyed by name. Renaming one creates new entities.
-- API endpoints were taken from the Arcane source (v2.x, `/api/openapi.json`), not from a long-running production setup. See the test status below.
+- Update entities for `latest`-style tags compare digests (shown shortened to 12 characters), since there is no version number.
 
 ## Tested
 
-`pytest` (under a second, no network) runs the integration in a real Home Assistant test harness against a fake Arcane server that mirrors the response shapes from the Arcane source: config flow (good key, bad key, unreachable), entity states, all actions including the streaming `/up`, dynamic entities and re-auth. **Not yet tested against a live Arcane instance**, please open an issue if a field differs on your version.
+- `pytest` (under a second, no network) runs the integration in a real Home Assistant test harness against a fake Arcane server: config flow (good key, bad key, unreachable), entity states, all actions including the streaming `/up`, dynamic entities, digest updates and re-auth.
+- Read path verified against a live **Arcane v2.16.1** (config flow, all sensors, container switch/button/update entity). An API key with only `containers:list`, `projects:list`, `image-updates:read` and `environments:list` is enough to set up the integration.
+- Write actions (start/stop/restart/redeploy, project up/down) are covered by the fake server only, not yet against a live instance.
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements_test.txt && .venv/bin/pytest
