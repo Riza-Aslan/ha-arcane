@@ -46,4 +46,4 @@ python -m venv .venv && .venv/bin/pip install -r requirements_test.txt && .venv/
 
 ## License
 
-MIT
+MIT for the integration code. The Arcane logo in `brand/` is taken from the [Arcane project](https://github.com/getarcaneapp/arcane) (BSD 3-Clause, © 2025 Kyle Mendell) and belongs to its authors. This is an unofficial community integration.
