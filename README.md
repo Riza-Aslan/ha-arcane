@@ -27,6 +27,8 @@ Containers and projects that appear later get entities automatically; removed on
 
 ## Install
 
+[![Open your Home Assistant instance and open this repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Riza-Aslan&repository=ha-arcane&category=integration)
+
 **HACS (custom repository):** HACS → ⋮ → Custom repositories → `https://github.com/Riza-Aslan/ha-arcane`, type *Integration* → install → restart Home Assistant.
 
 **Manual:** copy `custom_components/arcane` to `<config>/custom_components/arcane` and restart.
