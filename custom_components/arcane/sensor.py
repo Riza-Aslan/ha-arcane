@@ -1,4 +1,4 @@
-"""Instance-wide sensors."""
+"""Per-host sensors."""
 
 from __future__ import annotations
 
@@ -14,17 +14,17 @@ from homeassistant.components.sensor import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .coordinator import ArcaneConfigEntry, ArcaneCoordinator, ArcaneData
-from .entity import ArcaneEntity
+from .coordinator import ArcaneConfigEntry, ArcaneCoordinator, EnvData
+from .entity import ArcaneEntity, add_dynamic
 
 
 @dataclass(frozen=True, kw_only=True)
 class ArcaneSensorDescription(SensorEntityDescription):
-    value_fn: Callable[[ArcaneData], Any]
+    value_fn: Callable[[EnvData], Any]
 
 
-def _get(section: str, key: str) -> Callable[[ArcaneData], Any]:
-    return lambda d: getattr(d, section).get(key)
+def _get(section: str, key: str) -> Callable[[EnvData], Any]:
+    return lambda e: getattr(e, section).get(key)
 
 
 SENSORS: tuple[ArcaneSensorDescription, ...] = tuple(
@@ -53,7 +53,12 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data
-    async_add_entities(ArcaneSensor(coordinator, entry, d) for d in SENSORS)
+    add_dynamic(
+        entry,
+        async_add_entities,
+        "environments",
+        lambda env_id, _n: [ArcaneSensor(coordinator, entry, env_id, d) for d in SENSORS],
+    )
 
 
 class ArcaneSensor(ArcaneEntity, SensorEntity):
@@ -63,12 +68,13 @@ class ArcaneSensor(ArcaneEntity, SensorEntity):
         self,
         coordinator: ArcaneCoordinator,
         entry: ArcaneConfigEntry,
+        env_id: str,
         description: ArcaneSensorDescription,
     ) -> None:
-        super().__init__(coordinator, entry)
+        super().__init__(coordinator, entry, env_id, description.key)
         self.entity_description = description
-        self._attr_unique_id = f"{entry.entry_id}_{description.key}"
 
     @property
     def native_value(self) -> Any:
-        return self.entity_description.value_fn(self.coordinator.data)
+        env = self.env
+        return None if env is None else self.entity_description.value_fn(env)

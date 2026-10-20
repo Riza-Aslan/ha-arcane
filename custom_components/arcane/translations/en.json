@@ -3,11 +3,10 @@
     "step": {
       "user": {
         "title": "Connect to Arcane",
-        "description": "Create an API key in Arcane under Settings → API Keys. Environment ID 0 is the local environment.",
+        "description": "Create an API key in Arcane under Settings → API Keys. All hosts (environments) are detected automatically.",
         "data": {
           "url": "URL",
-          "api_key": "API key",
-          "environment_id": "Environment ID"
+          "api_key": "API key"
         }
       },
       "reauth_confirm": {
@@ -56,6 +55,21 @@
     "button": {
       "check_image_updates": {
         "name": "Check image updates"
+      },
+      "cleanup_missing": {
+        "name": "Clean up missing"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Arcane options",
+        "description": "Leave empty for all hosts. Containers, projects and hosts that vanished are removed automatically after the grace period (0 = never).",
+        "data": {
+          "environments": "Hosts",
+          "stale_hours": "Grace period before removal (hours)"
+        }
       }
     }
   }

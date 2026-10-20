@@ -1,4 +1,4 @@
-"""Test fixtures: a fake Arcane server speaking the real API shapes."""
+"""Test fixtures: a fake Arcane server with several environments (hosts)."""
 
 import json
 
@@ -36,19 +36,34 @@ def make_app(state):
 
     app = web.Application(middlewares=[auth])
     r = app.router
+
     def get(path, fn):
-        async def h(_request):
-            return fn()
+        async def h(request):
+            return fn(request)
 
         r.add_get(path, h)
 
-    get("/api/health", lambda: web.json_response({"status": "UP"}))
-    get("/api/app-version", lambda: _env({"currentVersion": "2.10.0", "displayVersion": "v2.10.0"}))
-    get("/api/environments/0/containers/counts", lambda: _env({"runningContainers": 1, "stoppedContainers": 1, "totalContainers": 2}))
-    get("/api/environments/0/projects/counts", lambda: _env({"runningProjects": 1, "stoppedProjects": 0, "totalProjects": 1}))
-    get("/api/environments/0/image-updates/summary", lambda: _env({"totalImages": 2, "imagesWithUpdates": 1, "digestUpdates": 1, "errorsCount": 0}))
-    get("/api/environments/0/containers", lambda: _page(state["containers"]))
-    get("/api/environments/0/projects", lambda: _page(state["projects"]))
+    def host(request):
+        h = state["hosts"].get(request.match_info["eid"])
+        if h is None or h.get("fail"):
+            raise web.HTTPInternalServerError()
+        return h
+
+    get("/api/health", lambda _r: web.json_response({"status": "UP"}))
+    get("/api/app-version", lambda _r: _env({"currentVersion": "2.10.0", "displayVersion": "v2.10.0"}))
+    get("/api/environments", lambda _r: _page(
+        [{"id": i, "name": h["name"], "status": h.get("status", "online"), "enabled": True, "isEdge": i != "0"}
+         for i, h in state["hosts"].items()]))
+    get("/api/environments/{eid}/containers/counts", lambda q: _env({
+        "runningContainers": sum(c["state"] == "running" for c in host(q)["containers"]),
+        "stoppedContainers": sum(c["state"] != "running" for c in host(q)["containers"]),
+        "totalContainers": len(host(q)["containers"])}))
+    get("/api/environments/{eid}/projects/counts", lambda q: _env({
+        "runningProjects": len(host(q)["projects"]), "stoppedProjects": 0, "totalProjects": len(host(q)["projects"])}))
+    get("/api/environments/{eid}/image-updates/summary", lambda q: _env(
+        {"totalImages": 2, "imagesWithUpdates": 1, "digestUpdates": 1, "errorsCount": 0}))
+    get("/api/environments/{eid}/containers", lambda q: _page(host(q)["containers"]))
+    get("/api/environments/{eid}/projects", lambda q: _page(host(q)["projects"]))
 
     async def action(request):
         calls.append((request.method, request.path))
@@ -63,11 +78,11 @@ def make_app(state):
         return resp
 
     for p in ("start", "stop", "restart", "redeploy"):
-        r.add_post(f"/api/environments/0/containers/{{cid}}/{p}", action)
-    r.add_post("/api/environments/0/projects/{pid}/up", up)
-    r.add_post("/api/environments/0/projects/{pid}/down", action)
-    r.add_post("/api/environments/0/projects/{pid}/restart", action)
-    r.add_post("/api/environments/0/image-updates/check-all", action)
+        r.add_post(f"/api/environments/{{eid}}/containers/{{cid}}/{p}", action)
+    r.add_post("/api/environments/{eid}/projects/{pid}/up", up)
+    r.add_post("/api/environments/{eid}/projects/{pid}/down", action)
+    r.add_post("/api/environments/{eid}/projects/{pid}/restart", action)
+    r.add_post("/api/environments/{eid}/image-updates/check-all", action)
     return app
 
 
@@ -75,13 +90,27 @@ def make_app(state):
 def state():
     return {
         "calls": [],
-        "containers": [
-            {"id": "c1", "names": ["/web"], "image": "nginx:latest", "state": "running", "status": "Up 2h",
-             "updateInfo": {"hasUpdate": True, "currentVersion": "1.27", "latestVersion": "1.28", "updateType": "tag", "error": ""}},
-            {"id": "c2", "names": ["/db"], "image": "postgres:17", "state": "exited", "status": "Exited",
-             "updateInfo": {"hasUpdate": False, "currentVersion": "17", "error": ""}},
-        ],
-        "projects": [{"id": "p1", "name": "shop", "status": "running"}],
+        "hosts": {
+            "0": {
+                "name": "Local Docker",
+                "containers": [
+                    {"id": "c1", "names": ["/web"], "image": "nginx:latest", "state": "running", "status": "Up 2h",
+                     "updateInfo": {"hasUpdate": True, "currentVersion": "1.27", "latestVersion": "1.28", "updateType": "tag", "error": ""}},
+                    {"id": "c2", "names": ["/db"], "image": "postgres:17", "state": "exited", "status": "Exited",
+                     "updateInfo": {"hasUpdate": False, "currentVersion": "17", "error": ""}},
+                ],
+                "projects": [{"id": "p1", "name": "shop", "status": "running"}],
+            },
+            "h2": {
+                "name": "As-VPS",
+                "containers": [
+                    {"id": "v1", "names": ["/web"], "image": "caddy", "state": "running", "status": "Up"},
+                    # transient artefact while Docker recreates a container: must be ignored
+                    {"id": "v9", "names": ["/8e390ad593fd_web"], "image": "caddy", "state": "exited", "status": "Exited"},
+                ],
+                "projects": [],
+            },
+        },
     }
 
 

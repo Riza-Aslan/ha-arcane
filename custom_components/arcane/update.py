@@ -14,7 +14,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .api import ArcaneError
 from .coordinator import ArcaneConfigEntry, ArcaneCoordinator
-from .entity import ArcaneEntity, add_dynamic
+from .entity import ArcaneItemEntity, add_dynamic
 
 
 async def async_setup_entry(
@@ -27,7 +27,7 @@ async def async_setup_entry(
         entry,
         async_add_entities,
         "containers",
-        lambda n: [ContainerUpdate(coordinator, entry, n)],
+        lambda env_id, n: [ContainerUpdate(coordinator, entry, env_id, "container_update", n)],
     )
 
 
@@ -37,28 +37,21 @@ def _short(value: str | None) -> str | None:
     return value or None
 
 
-class ContainerUpdate(ArcaneEntity, UpdateEntity):
+class ContainerUpdate(ArcaneItemEntity, UpdateEntity):
+    _collection = "containers"
     _attr_supported_features = UpdateEntityFeature.INSTALL
 
-    def __init__(
-        self, coordinator: ArcaneCoordinator, entry: ArcaneConfigEntry, name: str
-    ) -> None:
-        super().__init__(coordinator, entry)
-        self._item = name
+    def __init__(self, coordinator: ArcaneCoordinator, entry, env_id, kind, name) -> None:
+        super().__init__(coordinator, entry, env_id, kind, name)
         self._attr_name = f"Container {name}"
-        self._attr_unique_id = f"{entry.entry_id}_container_update_{name}"
 
     @property
     def _raw(self) -> dict | None:
-        return self.coordinator.data.containers.get(self._item)
+        return self.raw
 
     @property
     def _info(self) -> dict:
         return (self._raw or {}).get("updateInfo") or {}
-
-    @property
-    def available(self) -> bool:
-        return super().available and self._raw is not None
 
     @property
     def installed_version(self) -> str | None:
@@ -99,7 +92,7 @@ class ContainerUpdate(ArcaneEntity, UpdateEntity):
         if raw is None:
             raise HomeAssistantError("Container no longer exists")
         try:
-            await self.coordinator.client.container_redeploy(raw["id"])
+            await self.coordinator.client.container_redeploy(self._env_id, raw["id"])
         except ArcaneError as err:
             raise HomeAssistantError(f"Arcane: {err}") from err
         await self.coordinator.async_request_refresh()

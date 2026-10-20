@@ -3,11 +3,10 @@
     "step": {
       "user": {
         "title": "Mit Arcane verbinden",
-        "description": "API-Key in Arcane unter Einstellungen → API Keys anlegen. Environment-ID 0 ist die lokale Umgebung.",
+        "description": "API-Key in Arcane unter Einstellungen → API Keys anlegen. Alle Hosts (Environments) werden automatisch erkannt.",
         "data": {
           "url": "URL",
-          "api_key": "API-Key",
-          "environment_id": "Environment-ID"
+          "api_key": "API-Key"
         }
       },
       "reauth_confirm": {
@@ -56,6 +55,21 @@
     "button": {
       "check_image_updates": {
         "name": "Image-Updates prüfen"
+      },
+      "cleanup_missing": {
+        "name": "Verschwundenes aufräumen"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Arcane-Optionen",
+        "description": "Leer lassen = alle Hosts. Verschwundene Container, Projekte und Hosts werden nach der Wartezeit automatisch entfernt (0 = nie).",
+        "data": {
+          "environments": "Hosts",
+          "stale_hours": "Wartezeit bis zum Entfernen (Stunden)"
+        }
       }
     }
   }

@@ -27,23 +27,12 @@ class ArcaneApiError(ArcaneError):
 
 
 class ArcaneClient:
-    """Talks to one environment of an Arcane instance."""
+    """Talks to an Arcane manager; every call names its environment (host)."""
 
-    def __init__(
-        self,
-        session: aiohttp.ClientSession,
-        base_url: str,
-        api_key: str,
-        environment_id: str = "0",
-    ) -> None:
+    def __init__(self, session: aiohttp.ClientSession, base_url: str, api_key: str) -> None:
         self._session = session
         self._base = base_url.rstrip("/") + "/api"
         self._headers = {"X-Api-Key": api_key, "Accept": "application/json"}
-        self.environment_id = environment_id
-
-    @property
-    def _env(self) -> str:
-        return f"/environments/{self.environment_id}"
 
     async def _request(
         self,
@@ -116,6 +105,10 @@ class ArcaneClient:
             if not data or len(items) >= total:
                 return items
 
+    @staticmethod
+    def _env(env_id: str) -> str:
+        return f"/environments/{env_id}"
+
     # --- read ---------------------------------------------------------------
 
     async def health(self) -> bool:
@@ -127,55 +120,54 @@ class ArcaneClient:
         body = await self._request("GET", "/app-version", auth=False)
         return (body or {}).get("data", body) or {}
 
-    async def container_counts(self) -> dict[str, Any]:
-        body = await self._request("GET", f"{self._env}/containers/counts")
+    async def environments(self) -> list[dict]:
+        return await self._paged("/environments")
+
+    async def container_counts(self, env_id: str) -> dict[str, Any]:
+        body = await self._request("GET", f"{self._env(env_id)}/containers/counts")
         return (body or {}).get("data", {})
 
-    async def project_counts(self) -> dict[str, Any]:
-        body = await self._request("GET", f"{self._env}/projects/counts")
+    async def project_counts(self, env_id: str) -> dict[str, Any]:
+        body = await self._request("GET", f"{self._env(env_id)}/projects/counts")
         return (body or {}).get("data", {})
 
-    async def image_update_summary(self) -> dict[str, Any]:
-        body = await self._request("GET", f"{self._env}/image-updates/summary")
+    async def image_update_summary(self, env_id: str) -> dict[str, Any]:
+        body = await self._request("GET", f"{self._env(env_id)}/image-updates/summary")
         return (body or {}).get("data", {})
 
-    async def image_counts(self) -> dict[str, Any]:
-        body = await self._request("GET", f"{self._env}/images/counts")
-        return (body or {}).get("data", {})
+    async def containers(self, env_id: str) -> list[dict]:
+        return await self._paged(f"{self._env(env_id)}/containers")
 
-    async def containers(self) -> list[dict]:
-        return await self._paged(f"{self._env}/containers")
-
-    async def projects(self) -> list[dict]:
-        return await self._paged(f"{self._env}/projects")
+    async def projects(self, env_id: str) -> list[dict]:
+        return await self._paged(f"{self._env(env_id)}/projects")
 
     # --- actions ------------------------------------------------------------
 
-    async def container_action(self, container_id: str, action: str) -> None:
+    async def container_action(self, env_id: str, container_id: str, action: str) -> None:
         """action: start | stop | restart."""
         await self._request(
-            "POST", f"{self._env}/containers/{container_id}/{action}", timeout=120
+            "POST", f"{self._env(env_id)}/containers/{container_id}/{action}", timeout=120
         )
 
-    async def container_redeploy(self, container_id: str) -> None:
+    async def container_redeploy(self, env_id: str, container_id: str) -> None:
         await self._request(
-            "POST", f"{self._env}/containers/{container_id}/redeploy", timeout=600
+            "POST", f"{self._env(env_id)}/containers/{container_id}/redeploy", timeout=600
         )
 
-    async def project_up(self, project_id: str) -> None:
-        await self._stream("POST", f"{self._env}/projects/{project_id}/up")
+    async def project_up(self, env_id: str, project_id: str) -> None:
+        await self._stream("POST", f"{self._env(env_id)}/projects/{project_id}/up")
 
-    async def project_down(self, project_id: str) -> None:
+    async def project_down(self, env_id: str, project_id: str) -> None:
         await self._request(
-            "POST", f"{self._env}/projects/{project_id}/down", timeout=300
+            "POST", f"{self._env(env_id)}/projects/{project_id}/down", timeout=300
         )
 
-    async def project_restart(self, project_id: str) -> None:
+    async def project_restart(self, env_id: str, project_id: str) -> None:
         await self._request(
-            "POST", f"{self._env}/projects/{project_id}/restart", timeout=300
+            "POST", f"{self._env(env_id)}/projects/{project_id}/restart", timeout=300
         )
 
-    async def check_all_image_updates(self) -> None:
+    async def check_all_image_updates(self, env_id: str) -> None:
         await self._request(
-            "POST", f"{self._env}/image-updates/check-all", timeout=600
+            "POST", f"{self._env(env_id)}/image-updates/check-all", timeout=600
         )
