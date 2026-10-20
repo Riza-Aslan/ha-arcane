@@ -275,3 +275,10 @@ def test_migrate_unique_id_mapping():
     assert migrate_unique_id(e, "0", "E_containers_running") == "E|0|containers_running"
     assert migrate_unique_id(e, "0", "E_check_image_updates") == "E|0|check_image_updates"
     assert migrate_unique_id(e, "0", "other") is None
+
+
+async def test_update_title_names_the_container(hass, server):
+    """The update panel shows host as headline; the container must be visible in `title`."""
+    await _setup(hass, server)
+    assert hass.states.get("update.local_docker_container_web").attributes["title"] == "web (nginx:latest)"
+    assert hass.states.get("update.as_vps_container_web").attributes["title"] == "web (caddy)"

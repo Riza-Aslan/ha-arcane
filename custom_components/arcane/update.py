@@ -74,7 +74,11 @@ class ContainerUpdate(ArcaneItemEntity, UpdateEntity):
 
     @property
     def title(self) -> str | None:
-        return (self._raw or {}).get("image")
+        # HA's update panel shows the *device* (host) as headline and `title` + version
+        # below it, so the container name has to be part of the title.
+        raw = self._raw or {}
+        image = raw.get("image")
+        return f"{self._item} ({image})" if image else self._item
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
