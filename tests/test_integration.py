@@ -93,7 +93,7 @@ async def test_one_device_per_host_and_same_names_do_not_clash(hass, server):
     assert not [s for s in switches if "8e390ad593fd" in s]
     assert hass.states.get("switch.local_docker_container_db").state == "off"
     assert hass.states.get("sensor.local_docker_containers_total").state == "2"
-    assert hass.states.get("sensor.as_vps_containers_total").state == "2"
+    assert hass.states.get("sensor.as_vps_containers_total").state == "3"
 
 
 async def test_actions_hit_the_right_host(hass, server, state):
@@ -282,3 +282,13 @@ async def test_update_title_names_the_container(hass, server):
     await _setup(hass, server)
     assert hass.states.get("update.local_docker_container_web").attributes["title"] == "web (nginx:latest)"
     assert hass.states.get("update.as_vps_container_web").attributes["title"] == "web (caddy)"
+
+
+async def test_arcane_agent_uses_system_upgrade_not_redeploy(hass, server, state):
+    """Arcane refuses to redeploy its own agent (redeployDisabled); use the self-upgrade."""
+    await _setup(hass, server)
+    ent = "update.as_vps_container_arcane_edge_agent"
+    assert hass.states.get(ent).state == "on"
+    state["calls"].clear()
+    await hass.services.async_call("update", "install", {"entity_id": ent}, blocking=True)
+    assert state["calls"] == [("POST", "/api/environments/h2/system/upgrade")]

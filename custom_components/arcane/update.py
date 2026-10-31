@@ -96,7 +96,11 @@ class ContainerUpdate(ArcaneItemEntity, UpdateEntity):
         if raw is None:
             raise HomeAssistantError("Container no longer exists")
         try:
-            await self.coordinator.client.container_redeploy(self._env_id, raw["id"])
+            if raw.get("redeployDisabled"):
+                # Arcane's own agent/manager: redeploy is refused, use the self-upgrade
+                await self.coordinator.client.system_upgrade(self._env_id)
+            else:
+                await self.coordinator.client.container_redeploy(self._env_id, raw["id"])
         except ArcaneError as err:
             raise HomeAssistantError(f"Arcane: {err}") from err
         await self.coordinator.async_request_refresh()

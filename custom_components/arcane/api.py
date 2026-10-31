@@ -154,6 +154,14 @@ class ArcaneClient:
             "POST", f"{self._env(env_id)}/containers/{container_id}/redeploy", timeout=600
         )
 
+    async def system_upgrade(self, env_id: str) -> None:
+        """Self-upgrade of an Arcane agent/manager (needs `system:upgrade`).
+
+        Containers running Arcane itself cannot be redeployed (Arcane refuses, the
+        container would kill its own request); this starts a separate upgrader instead.
+        """
+        await self._request("POST", f"{self._env(env_id)}/system/upgrade", timeout=120)
+
     async def project_up(self, env_id: str, project_id: str) -> None:
         await self._stream("POST", f"{self._env(env_id)}/projects/{project_id}/up")
 

@@ -35,6 +35,10 @@ Containers and projects come and go. Home Assistant keeps entities of things tha
 - Button **Clean up missing** removes everything that is verifiably gone right now. Devices without entities are removed with it.
 - Option *Hosts* limits the integration to selected hosts (empty = all). Entities of deselected hosts are cleaned up like vanished ones.
 
+### Updating Arcane itself
+
+Arcane refuses to redeploy its own manager and agents (`redeployDisabled`), because the container would end its own request. For those containers the *Install* button of the update entity calls Arcane's self-upgrade (`POST /system/upgrade`) instead, which starts a separate upgrader container. This needs the API key permission `system:upgrade`. The agent restarts and its host is briefly unavailable.
+
 ## Install
 
 [![Open your Home Assistant instance and open this repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Riza-Aslan&repository=ha-arcane&category=integration)

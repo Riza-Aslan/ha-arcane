@@ -83,6 +83,7 @@ def make_app(state):
     r.add_post("/api/environments/{eid}/projects/{pid}/down", action)
     r.add_post("/api/environments/{eid}/projects/{pid}/restart", action)
     r.add_post("/api/environments/{eid}/image-updates/check-all", action)
+    r.add_post("/api/environments/{eid}/system/upgrade", action)
     return app
 
 
@@ -106,6 +107,10 @@ def state():
                 "containers": [
                     {"id": "v1", "names": ["/web"], "image": "caddy", "state": "running", "status": "Up"},
                     # transient artefact while Docker recreates a container: must be ignored
+                    {"id": "ag", "names": ["/arcane-edge-agent"], "image": "ghcr.io/getarcaneapp/agent:latest", "state": "running",
+                     "status": "Up", "redeployDisabled": True,
+                     "updateInfo": {"hasUpdate": True, "updateType": "digest", "currentDigest": "sha256:aaaaaaaaaaaaffff",
+                                    "latestDigest": "sha256:bbbbbbbbbbbbffff", "error": ""}},
                     {"id": "v9", "names": ["/8e390ad593fd_web"], "image": "caddy", "state": "exited", "status": "Exited"},
                 ],
                 "projects": [],
