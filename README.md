@@ -19,9 +19,9 @@ The integration reads **all environments** (hosts) of your Arcane manager. Every
 | Device | What |
 |---|---|
 | **Arcane** (the manager) | Button "Clean up missing" |
-| **One per host** (e.g. *As-VPS*) | Sensors: containers running / stopped / total, projects running / stopped / total, images with updates, update check errors. Button: "Check image updates" |
-| – per container | `switch` start/stop, `button` restart, `update` (installed/latest version, **install = Arcane redeploy**) |
-| – per project | `switch` compose up/down, `button` restart |
+| **One per host** (e.g. *As-VPS*) | `binary_sensor` Online (stays available when the host is down). Sensors: containers running / stopped / total, projects running / stopped / total, images with updates, update check errors. Buttons: "Check image updates", "Update all" |
+| – per container | `switch` start/stop, `button` restart, `update` (install = redeploy with pull), `switch` auto-update (config, disabled by default) |
+| – per project | `switch` compose up/down, `button` restart, `update` (install = pull all images and recreate; disabled by default) |
 
 Entity IDs follow the device name, e.g. `switch.as_vps_container_traefik_vps`.
 
@@ -40,6 +40,26 @@ Containers and projects come and go. Home Assistant keeps entities of things tha
 Arcane refuses to redeploy its own manager and agents (`redeployDisabled`), because the container would end its own request. For those containers the *Install* button of the update entity calls Arcane's self-upgrade (`POST /system/upgrade`) instead, which starts a separate upgrader container. This needs the API key permission `system:upgrade`. The agent restarts and its host is briefly unavailable.
 
 While an update runs, the update entity shows **in progress** and the integration polls every 15 seconds. It ends when the container was replaced (or the host came back after a restart), at the latest after 15 minutes. A second click while an upgrade is already running is harmless.
+
+## Services
+
+| Service | What |
+|---|---|
+| `arcane.check_updates` | Ask the registries for new images on the selected hosts (devices) |
+| `arcane.update_all` | Apply all pending updates of the selected hosts like Arcane's updater (containers excluded in Arcane are skipped). `dry_run: true` only reports. Returns the counters per host, so an automation can send them |
+
+```yaml
+action: arcane.update_all
+data:
+  device_id: <host device>
+  dry_run: true
+response_variable: result   # {"hosts": {"As-VPS": {"checked": 18, "updated": 0, "skipped": 18, "failed": 0}}}
+```
+
+## Repairs and reconfiguring
+
+- If the image update check keeps failing on a host for more than an hour (typically a private registry without credentials), a **Repair** names the containers and the first error.
+- *Reconfigure* (integration menu) changes the URL or the API key without removing the entry. Leave the key empty to keep the current one.
 
 ## Install
 
@@ -68,7 +88,7 @@ If the key is revoked or expires, Home Assistant starts a re-authentication flow
 ## Tested
 
 - `pytest` (under a second, no network) runs the integration in a real Home Assistant test harness against a fake Arcane server: config flow (good key, bad key, unreachable), entity states, all actions including the streaming `/up`, dynamic entities, digest updates and re-auth.
-- Read path verified against a live **Arcane v2.16.1** (config flow, all sensors, container switch/button/update entity). An API key with only `containers:list`, `projects:list`, `image-updates:read` and `environments:list` is enough to set up and read everything. Add `containers:start|stop|restart|redeploy`, `projects:deploy|down|restart` and `image-updates:check` for the switches, buttons and *Install*.
+- Read path verified against a live **Arcane v2.16.1** (config flow, all sensors, container switch/button/update entity). An API key with only `containers:list`, `projects:list`, `image-updates:read` and `environments:list` is enough to set up and read everything. Add `containers:start|stop|restart|redeploy|autoupdate`, `projects:deploy|down|restart`, `image-updates:check` and `system:upgrade` for the switches, buttons, services and *Install*.
 - Write actions (start/stop/restart/redeploy, project up/down) are covered by the fake server only, not yet against a live instance.
 
 ```bash

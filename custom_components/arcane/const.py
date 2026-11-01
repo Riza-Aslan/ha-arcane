@@ -21,3 +21,8 @@ PAGE_SIZE = 100
 #   <entry_id>|instance|<key>                   entities of the Arcane instance itself
 SEP = "|"
 INSTANCE = "instance"
+
+SERVICE_CHECK_UPDATES = "check_updates"
+SERVICE_UPDATE_ALL = "update_all"
+SERVICE_REDEPLOY = "redeploy"
+ATTR_DRY_RUN = "dry_run"

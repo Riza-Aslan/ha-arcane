@@ -6,16 +6,22 @@ import logging
 
 from homeassistant.const import CONF_URL, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import ArcaneClient
-from .const import CONF_API_KEY, CONF_ENVIRONMENT_ID, CONF_ENVIRONMENTS, SEP
+from .const import CONF_API_KEY, CONF_ENVIRONMENT_ID, CONF_ENVIRONMENTS, DOMAIN, SEP
 from .coordinator import ArcaneConfigEntry, ArcaneCoordinator
+from .services import async_register_services
 
 _LOGGER = logging.getLogger(__name__)
 
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
     Platform.BUTTON,
     Platform.SENSOR,
     Platform.SWITCH,
@@ -68,6 +74,11 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ArcaneConfigEntry) -> 
     return True
 
 
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    async_register_services(hass)
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ArcaneConfigEntry) -> bool:
     client = ArcaneClient(
         async_get_clientsession(hass), entry.data[CONF_URL], entry.data[CONF_API_KEY]
@@ -80,4 +91,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ArcaneConfigEntry) -> bo
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ArcaneConfigEntry) -> bool:
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded:
+        entry.runtime_data.async_clear_issues()
+    return unloaded

@@ -13,12 +13,16 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import (
+    device_registry as dr,
+    entity_registry as er,
+    issue_registry as ir,
+)
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import ArcaneAuthError, ArcaneClient, ArcaneError
+from .api import ArcaneAuthError, ArcaneClient, ArcaneError, guarded
 from .const import (
     CONF_ENVIRONMENTS,
     CONF_STALE_HOURS,
@@ -41,6 +45,9 @@ _RECREATE_NAME = re.compile(r"^[0-9a-f]{12}_")
 UPGRADE_POLL = timedelta(seconds=15)
 UPGRADE_TIMEOUT = 15 * 60
 
+# Image update check errors are only reported as a Repair once they persist this long.
+ERROR_ISSUE_AFTER = 3600
+
 
 @dataclass
 class _Upgrade:
@@ -57,6 +64,8 @@ class EnvData:
     id: str
     name: str
     is_edge: bool = False
+    status: str = ""  # as reported by Arcane: online / offline / ...
+    enabled: bool = True
     ok: bool = False  # last fetch worked; False = offline/disabled/failed
     container_counts: dict[str, Any] = field(default_factory=dict)
     project_counts: dict[str, Any] = field(default_factory=dict)
@@ -100,6 +109,8 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
         self._missing: dict[str, float] = {}  # entity_id -> first time seen missing
         self._upgrading: dict[tuple[str, str], _Upgrade] = {}
         self._watch: CALLBACK_TYPE | None = None
+        self._errors_since: dict[str, float] = {}  # env_id -> first time check errors seen
+        self._issues: set[str] = set()
 
     async def _async_setup(self) -> None:
         self._missing = await self._store.async_load() or {}
@@ -180,6 +191,8 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             id=str(raw["id"]),
             name=str(raw.get("name") or raw["id"]),
             is_edge=bool(raw.get("isEdge")),
+            status=str(raw.get("status") or ""),
+            enabled=bool(raw.get("enabled", True)),
         )
         # keep the last known items so their entities turn unavailable instead of vanishing
         if prev is not None:
@@ -234,7 +247,96 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             pass
         await self._async_cleanup(data)
         self._settle_upgrades(data)
+        self._sync_issues(data)
         return data
+
+    # --- actions on a whole host -------------------------------------------
+
+    async def async_check_updates(self, env_id: str) -> None:
+        await guarded(self.client.check_all_image_updates(env_id), "image-updates:check")
+        await self.async_request_refresh()
+
+    async def async_update_all(self, env_id: str, *, dry_run: bool = False) -> dict[str, Any]:
+        """Apply every pending update of one host; returns Arcane's counters."""
+        env = self.data.environments.get(env_id)
+        names = (
+            []
+            if env is None or dry_run
+            else [
+                n
+                for n, c in env.containers.items()
+                if (c.get("updateInfo") or {}).get("hasUpdate") and not c.get("redeployDisabled")
+            ]
+        )
+        for n in names:
+            self.mark_upgrading(env_id, n, None, blocking=True)
+        try:
+            result = await guarded(
+                self.client.run_updater(env_id, dry_run=dry_run), "image-updates:check"
+            )
+        finally:
+            for n in names:
+                self.unmark_upgrading(env_id, n)
+        if not dry_run:
+            await self.async_request_refresh()
+        return {k: result.get(k) for k in ("checked", "updated", "skipped", "failed")}
+
+    # --- repairs ------------------------------------------------------------
+
+    def _issue_id(self, env_id: str) -> str:
+        return f"check_errors_{self.config_entry.entry_id}_{env_id}"
+
+    @callback
+    def _sync_issues(self, data: ArcaneData) -> None:
+        """Raise a Repair for hosts whose image update check keeps failing."""
+        now = time.time()
+        failing: dict[str, tuple[EnvData, list[tuple[str, str]]]] = {}
+        for env in data.environments.values():
+            if not env.ok:
+                continue
+            errs = [
+                (n, str((c.get("updateInfo") or {}).get("error") or ""))
+                for n, c in env.containers.items()
+            ]
+            errs = [(n, e) for n, e in errs if e]
+            if errs:
+                failing[env.id] = (env, errs)
+        for env_id, (env, errs) in failing.items():
+            since = self._errors_since.setdefault(env_id, now)
+            if now - since < ERROR_ISSUE_AFTER:
+                continue
+            shown = ", ".join(n for n, _ in errs[:5]) + (" …" if len(errs) > 5 else "")
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                self._issue_id(env_id),
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="check_errors",
+                translation_placeholders={
+                    "host": env.name,
+                    "count": str(len(errs)),
+                    "containers": shown,
+                    "example": errs[0][1][:160],
+                },
+            )
+            self._issues.add(self._issue_id(env_id))
+        for env_id in list(self._errors_since):
+            if env_id in failing:
+                continue
+            env = data.environments.get(env_id)
+            if env is not None and not env.ok:
+                continue  # host unreachable right now: keep what we know
+            del self._errors_since[env_id]
+            if self._issue_id(env_id) in self._issues:
+                ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(env_id))
+                self._issues.discard(self._issue_id(env_id))
+
+    @callback
+    def async_clear_issues(self) -> None:
+        for issue_id in self._issues:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+        self._issues.clear()
 
     # --- tidy up ------------------------------------------------------------
 

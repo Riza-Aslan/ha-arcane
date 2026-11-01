@@ -14,6 +14,14 @@
         "data": {
           "api_key": "API key"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Arcane",
+        "description": "Change the URL or the API key. Leave the API key empty to keep the current one.",
+        "data": {
+          "url": "URL",
+          "api_key": "API key"
+        }
       }
     },
     "error": {
@@ -22,7 +30,8 @@
     },
     "abort": {
       "already_configured": "This Arcane environment is already configured.",
-      "reauth_successful": "Re-authentication successful."
+      "reauth_successful": "Re-authentication successful.",
+      "reconfigure_successful": "Reconfiguration successful."
     }
   },
   "entity": {
@@ -58,6 +67,14 @@
       },
       "cleanup_missing": {
         "name": "Clean up missing"
+      },
+      "update_all": {
+        "name": "Update all"
+      }
+    },
+    "binary_sensor": {
+      "host_online": {
+        "name": "Online"
       }
     }
   },
@@ -69,6 +86,38 @@
         "data": {
           "environments": "Hosts",
           "stale_hours": "Grace period before removal (hours)"
+        }
+      }
+    }
+  },
+  "issues": {
+    "check_errors": {
+      "title": "Image update check failing on {host}",
+      "description": "Arcane cannot check the images of {count} container(s) on {host} for updates: {containers}.\n\nExample error: {example}\n\nMost often a private registry needs credentials: add them in Arcane under Settings → Container Registries. Until then these containers never show an update in Home Assistant."
+    }
+  },
+  "services": {
+    "check_updates": {
+      "name": "Check for image updates",
+      "description": "Ask the registries whether newer images exist for all containers of the selected hosts.",
+      "fields": {
+        "device_id": {
+          "name": "Hosts",
+          "description": "The Arcane hosts (devices) to check."
+        }
+      }
+    },
+    "update_all": {
+      "name": "Update all",
+      "description": "Apply all pending container updates of the selected hosts, the same as Arcane's updater. Containers excluded in Arcane are skipped. Returns Arcane's counters per host.",
+      "fields": {
+        "device_id": {
+          "name": "Hosts",
+          "description": "The Arcane hosts (devices) to update."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "Only report what would be updated."
         }
       }
     }

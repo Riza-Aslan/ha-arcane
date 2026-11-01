@@ -9,6 +9,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.arcane import migrate_unique_id
+from homeassistant.helpers import issue_registry as ir
 from custom_components.arcane.api import ArcaneAuthError, ArcaneClient
 from custom_components.arcane.const import (
     CONF_API_KEY,
@@ -81,12 +82,12 @@ async def test_one_device_per_host_and_same_names_do_not_clash(hass, server):
     assert names == {"Arcane", "Local Docker", "As-VPS"}
     # both hosts have a container called "web": two separate switches, each on its own host
     switches = _ids(hass, entry, "switch")
-    assert len([s for s in switches if "container_web" in s]) == 2
+    assert len([s for s in switches if "container_web" in s and "auto_update" not in s]) == 2
     reg = er.async_get(hass)
     hosts = set()
     for sid in switches:
         e = reg.async_get(sid)
-        if "web" in e.unique_id.split("|")[-1]:
+        if e.unique_id.endswith("|container|web"):
             hosts.add(dev.async_get(e.device_id).name)
     assert hosts == {"Local Docker", "As-VPS"}
     # recreate artefact "<12hex>_web" got no entities
@@ -366,3 +367,120 @@ async def test_normal_redeploy_clears_progress_afterwards(hass, server, state):
     await hass.services.async_call(
         "update", "install", {"entity_id": "update.local_docker_container_web"}, blocking=True)
     assert hass.states.get("update.local_docker_container_web").attributes["in_progress"] is False
+
+
+async def _enable_entity(hass, entry, entity_id):
+    """Enable an entity that is disabled by default and reload the entry."""
+    reg = er.async_get(hass)
+    assert reg.async_get(entity_id) is not None, f"{entity_id} not registered"
+    reg.async_update_entity(entity_id, disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_host_online_sensor(hass, server, state):
+    entry = await _setup(hass, server)
+    assert hass.states.get("binary_sensor.as_vps_online").state == "on"
+    state["hosts"]["h2"]["status"] = "offline"
+    await _refresh(hass, entry)
+    s = hass.states.get("binary_sensor.as_vps_online")
+    assert s.state == "off" and s.attributes["status"] == "offline"  # still available
+    assert hass.states.get("switch.as_vps_container_web").state == "unavailable"
+
+
+async def test_update_all_button_and_service(hass, server, state):
+    entry = await _setup(hass, server)
+    state["calls"].clear()
+    await hass.services.async_call("button", "press", {"entity_id": "button.as_vps_update_all"}, blocking=True)
+    await hass.async_block_till_done()
+    assert state["calls"] == [("POST", "/api/environments/h2/updater/run", "true", {"dryRun": False})]
+    dev = dr.async_get(hass).async_get_device_by_identifier((DOMAIN, f"{entry.entry_id}|h2"), entry.entry_id)
+    state["calls"].clear()
+    out = await hass.services.async_call(
+        DOMAIN, "update_all", {"device_id": dev.id, "dry_run": True}, blocking=True, return_response=True)
+    assert out == {"hosts": {"As-VPS": {"checked": 3, "updated": 2, "skipped": 1, "failed": 0}}}
+    assert state["calls"] == [("POST", "/api/environments/h2/updater/run", "true", {"dryRun": True})]
+
+
+async def test_update_all_marks_progress_and_reports_errors(hass, server, state):
+    from homeassistant.exceptions import HomeAssistantError
+
+    entry = await _setup(hass, server)
+    dev = dr.async_get(hass).async_get_device_by_identifier((DOMAIN, f"{entry.entry_id}|0"), entry.entry_id)
+    state["updater_status"] = 403
+    with pytest.raises(HomeAssistantError, match="image-updates:check"):
+        await hass.services.async_call(DOMAIN, "update_all", {"device_id": dev.id}, blocking=True)
+    assert hass.states.get("update.local_docker_container_web").attributes["in_progress"] is False
+
+
+async def test_check_updates_service(hass, server, state):
+    entry = await _setup(hass, server)
+    dev = dr.async_get(hass).async_get_device_by_identifier((DOMAIN, f"{entry.entry_id}|h2"), entry.entry_id)
+    state["calls"].clear()
+    await hass.services.async_call(DOMAIN, "check_updates", {"device_id": dev.id}, blocking=True)
+    assert state["calls"] == [("POST", "/api/environments/h2/image-updates/check-all")]
+
+
+async def test_services_reject_the_manager_device(hass, server):
+    from homeassistant.exceptions import ServiceValidationError
+
+    entry = await _setup(hass, server)
+    dev = dr.async_get(hass).async_get_device_by_identifier((DOMAIN, entry.entry_id), entry.entry_id)
+    with pytest.raises(ServiceValidationError, match="manager"):
+        await hass.services.async_call(DOMAIN, "check_updates", {"device_id": dev.id}, blocking=True)
+
+
+async def test_auto_update_switch(hass, server, state):
+    entry = await _setup(hass, server)
+    ent = "switch.as_vps_container_web_auto_update"
+    await _enable_entity(hass, entry, ent)
+    assert hass.states.get(ent).state == "on"
+    state["calls"].clear()
+    await hass.services.async_call("switch", "turn_off", {"entity_id": ent}, blocking=True)
+    assert state["calls"] == [("PUT", "/api/environments/h2/containers/v1/auto-update", {"enabled": False})]
+
+
+async def test_project_update_entity(hass, server, state):
+    entry = await _setup(hass, server)
+    ent = "update.local_docker_project_shop"
+    await _enable_entity(hass, entry, ent)
+    s = hass.states.get(ent)
+    assert s.state == "on" and s.attributes["latest_version"] == "2 new images"
+    assert s.attributes["services_with_updates"] == ["app"]
+    state["calls"].clear()
+    await hass.services.async_call("update", "install", {"entity_id": ent}, blocking=True)
+    assert state["calls"] == [("POST", "/api/environments/0/projects/p1/redeploy")]
+    assert hass.states.get(ent).attributes["in_progress"] is False
+
+
+async def test_repair_issue_only_for_persistent_check_errors(hass, server, state, monkeypatch):
+    import custom_components.arcane.coordinator as co
+
+    entry = await _setup(hass, server)
+    issues = ir.async_get(hass)
+    assert not [i for i in issues.issues.values() if i[0] == DOMAIN]  # not right away
+    real = co.time.time
+    monkeypatch.setattr(co.time, "time", lambda: real() + co.ERROR_ISSUE_AFTER + 10)
+    await _refresh(hass, entry)
+    found = [i for (d, _), i in issues.issues.items() if d == DOMAIN]
+    assert len(found) == 1 and found[0].translation_placeholders["host"] == "As-VPS"
+    assert found[0].translation_placeholders["containers"] == "web"
+    # fixed: the issue goes away
+    state["hosts"]["h2"]["containers"][0]["updateInfo"] = {"hasUpdate": False, "error": ""}
+    await _refresh(hass, entry)
+    assert not [i for (d, _), i in issues.issues.items() if d == DOMAIN]
+
+
+async def test_reconfigure_changes_key_and_keeps_it_when_left_empty(hass, server):
+    entry = await _setup(hass, server)
+    res = await entry.start_reconfigure_flow(hass)
+    assert res["type"] is FlowResultType.FORM and res["step_id"] == "reconfigure"
+    bad = await hass.config_entries.flow.async_configure(
+        res["flow_id"], {CONF_URL: _data(server)[CONF_URL], CONF_API_KEY: "nope"})
+    assert bad["errors"] == {"base": "invalid_auth"}
+    done = await hass.config_entries.flow.async_configure(
+        res["flow_id"], {CONF_URL: _data(server)[CONF_URL], CONF_API_KEY: ""})
+    assert done["type"] is FlowResultType.ABORT and done["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_API_KEY] == KEY
+    await hass.async_block_till_done()
+    assert entry.state is ConfigEntryState.LOADED

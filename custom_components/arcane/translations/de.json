@@ -14,6 +14,14 @@
         "data": {
           "api_key": "API-Key"
         }
+      },
+      "reconfigure": {
+        "title": "Arcane neu konfigurieren",
+        "description": "URL oder API-Key ändern. API-Key leer lassen, um den aktuellen zu behalten.",
+        "data": {
+          "url": "URL",
+          "api_key": "API-Key"
+        }
       }
     },
     "error": {
@@ -22,7 +30,8 @@
     },
     "abort": {
       "already_configured": "Dieses Arcane-Environment ist schon eingerichtet.",
-      "reauth_successful": "Neu anmelden erfolgreich."
+      "reauth_successful": "Neu anmelden erfolgreich.",
+      "reconfigure_successful": "Neukonfiguration erfolgreich."
     }
   },
   "entity": {
@@ -58,6 +67,14 @@
       },
       "cleanup_missing": {
         "name": "Verschwundenes aufräumen"
+      },
+      "update_all": {
+        "name": "Alles aktualisieren"
+      }
+    },
+    "binary_sensor": {
+      "host_online": {
+        "name": "Online"
       }
     }
   },
@@ -69,6 +86,38 @@
         "data": {
           "environments": "Hosts",
           "stale_hours": "Wartezeit bis zum Entfernen (Stunden)"
+        }
+      }
+    }
+  },
+  "issues": {
+    "check_errors": {
+      "title": "Image-Update-Prüfung auf {host} schlägt fehl",
+      "description": "Arcane kann die Images von {count} Container(n) auf {host} nicht auf Updates prüfen: {containers}.\n\nBeispielfehler: {example}\n\nMeist braucht eine private Registry Zugangsdaten: in Arcane unter Einstellungen → Container Registries hinterlegen. Bis dahin zeigen diese Container in Home Assistant nie ein Update an."
+    }
+  },
+  "services": {
+    "check_updates": {
+      "name": "Image-Updates prüfen",
+      "description": "Fragt die Registries, ob für alle Container der gewählten Hosts neuere Images vorliegen.",
+      "fields": {
+        "device_id": {
+          "name": "Hosts",
+          "description": "Die Arcane-Hosts (Geräte), die geprüft werden."
+        }
+      }
+    },
+    "update_all": {
+      "name": "Alles aktualisieren",
+      "description": "Spielt alle anstehenden Container-Updates der gewählten Hosts ein, wie der Updater von Arcane. In Arcane ausgeschlossene Container werden übersprungen. Gibt Arcanes Zähler je Host zurück.",
+      "fields": {
+        "device_id": {
+          "name": "Hosts",
+          "description": "Die Arcane-Hosts (Geräte), die aktualisiert werden."
+        },
+        "dry_run": {
+          "name": "Probelauf",
+          "description": "Nur melden, was aktualisiert würde."
         }
       }
     }

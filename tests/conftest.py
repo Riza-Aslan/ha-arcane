@@ -90,6 +90,20 @@ def make_app(state):
         return _env({"message": "started"})
 
     r.add_post("/api/environments/{eid}/system/upgrade", upgrade)
+
+    async def autoupdate(request):
+        calls.append((request.method, request.path, await request.json()))
+        return _env({"message": "ok"})
+
+    async def run_updater(request):
+        calls.append((request.method, request.path, request.query.get("automatic"), await request.json()))
+        if state.get("updater_status"):
+            return web.json_response({"title": "x"}, status=state["updater_status"])
+        return _env({"checked": 3, "updated": 2, "skipped": 1, "failed": 0})
+
+    r.add_put("/api/environments/{eid}/containers/{cid}/auto-update", autoupdate)
+    r.add_post("/api/environments/{eid}/updater/run", run_updater)
+    r.add_post("/api/environments/{eid}/projects/{pid}/redeploy", up)
     return app
 
 
@@ -106,12 +120,18 @@ def state():
                     {"id": "c2", "names": ["/db"], "image": "postgres:17", "state": "exited", "status": "Exited",
                      "updateInfo": {"hasUpdate": False, "currentVersion": "17", "error": ""}},
                 ],
-                "projects": [{"id": "p1", "name": "shop", "status": "running"}],
+                "projects": [{"id": "p1", "name": "shop", "status": "running",
+                              "updateInfo": {"status": "has_update", "hasUpdate": True, "imageCount": 3,
+                                             "imagesWithUpdates": 2,
+                                             "serviceUpdates": {"app": {"updateInfo": {"hasUpdate": True}},
+                                                                "db": {"updateInfo": {"hasUpdate": False}}}}}],
             },
             "h2": {
                 "name": "As-VPS",
                 "containers": [
-                    {"id": "v1", "names": ["/web"], "image": "caddy", "state": "running", "status": "Up"},
+                    {"id": "v1", "names": ["/web"], "image": "caddy", "state": "running", "status": "Up",
+                     "autoUpdateEnabled": True,
+                     "updateInfo": {"hasUpdate": False, "error": "distribution inspect failed: unauthorized"}},
                     # transient artefact while Docker recreates a container: must be ignored
                     {"id": "ag", "names": ["/arcane-edge-agent"], "image": "ghcr.io/getarcaneapp/agent:latest", "state": "running",
                      "status": "Up", "redeployDisabled": True,

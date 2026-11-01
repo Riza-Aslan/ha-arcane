@@ -1,0 +1,24 @@
+check_updates:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          multiple: true
+          filter:
+            integration: arcane
+
+update_all:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          multiple: true
+          filter:
+            integration: arcane
+    dry_run:
+      required: false
+      default: false
+      selector:
+        boolean:

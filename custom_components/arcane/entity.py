@@ -53,6 +53,7 @@ class ArcaneEntity(CoordinatorEntity[ArcaneCoordinator]):
     """Entity that belongs to one host."""
 
     _attr_has_entity_name = True
+    _requires_online = True  # False: stays available while the host is offline
 
     def __init__(
         self,
@@ -74,7 +75,9 @@ class ArcaneEntity(CoordinatorEntity[ArcaneCoordinator]):
     @property
     def available(self) -> bool:
         env = self.env
-        return super().available and env is not None and env.ok
+        if not super().available or env is None:
+            return False
+        return env.ok or not self._requires_online
 
 
 class ArcaneItemEntity(ArcaneEntity):

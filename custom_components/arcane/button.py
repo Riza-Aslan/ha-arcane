@@ -5,12 +5,17 @@ from __future__ import annotations
 from homeassistant.components.button import ButtonDeviceClass, ButtonEntity
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
+import logging
+
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .api import ArcaneError
 from .coordinator import ArcaneConfigEntry, ArcaneCoordinator
 from .entity import ArcaneEntity, ArcaneInstanceEntity, ArcaneItemEntity, add_dynamic
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -22,7 +27,10 @@ async def async_setup_entry(
     async_add_entities([CleanupButton(coordinator, entry)])
     add_dynamic(
         entry, async_add_entities, "environments",
-        lambda env_id, _n: [CheckUpdatesButton(coordinator, entry, env_id)],
+        lambda env_id, _n: [
+            CheckUpdatesButton(coordinator, entry, env_id),
+            UpdateAllButton(coordinator, entry, env_id),
+        ],
     )
     add_dynamic(
         entry, async_add_entities, "containers",
@@ -64,6 +72,24 @@ class CheckUpdatesButton(ArcaneEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         await _run(self.coordinator, self.coordinator.client.check_all_image_updates(self._env_id))
+
+
+class UpdateAllButton(ArcaneEntity, ButtonEntity):
+    """Apply every pending update of this host (runs in the background)."""
+
+    _attr_translation_key = "update_all"
+
+    def __init__(self, coordinator: ArcaneCoordinator, entry, env_id: str) -> None:
+        super().__init__(coordinator, entry, env_id, "update_all")
+
+    async def async_press(self) -> None:
+        async def _run() -> None:
+            try:
+                await self.coordinator.async_update_all(self._env_id)
+            except HomeAssistantError as err:
+                _LOGGER.error("Update all on %s failed: %s", self.device_info["name"], err)
+
+        self._entry.async_create_task(self.hass, _run(), "arcane update all")
 
 
 class ContainerRestartButton(ArcaneItemEntity, ButtonEntity):

@@ -81,6 +81,47 @@ class ArcaneConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Change the URL or the API key without removing the entry."""
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            url = user_input[CONF_URL].strip().rstrip("/")
+            key = (user_input.get(CONF_API_KEY) or "").strip() or entry.data[CONF_API_KEY]
+            data = {**entry.data, CONF_URL: url, CONF_API_KEY: key}
+            if any(
+                other.entry_id != entry.entry_id and other.unique_id == url
+                for other in self._async_current_entries()
+            ):
+                return self.async_abort(reason="already_configured")
+            try:
+                await _validate(self.hass, data)
+            except ArcaneAuthError:
+                errors["base"] = "invalid_auth"
+            except ArcaneError:
+                errors["base"] = "cannot_connect"
+            else:
+                return self.async_update_reload_and_abort(
+                    entry,
+                    unique_id=url,
+                    title=f"Arcane ({url.split('//')[-1]})",
+                    data=data,
+                )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_URL, default=(user_input or entry.data)[CONF_URL]
+                    ): str,
+                    vol.Optional(CONF_API_KEY, default=""): str,
+                }
+            ),
+            errors=errors,
+        )
+
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
         return await self.async_step_reauth_confirm()
 

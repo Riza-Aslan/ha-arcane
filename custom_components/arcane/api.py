@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable
 from typing import Any
 
 import aiohttp
+from homeassistant.exceptions import HomeAssistantError
 
 from .const import PAGE_SIZE
 
@@ -30,6 +32,17 @@ class ArcaneApiError(ArcaneError):
         self.status = status
 
 
+async def guarded[T](awaitable: Awaitable[T], permission: str | None = None) -> T:
+    """Await an API call and turn Arcane errors into readable Home Assistant errors."""
+    try:
+        return await awaitable
+    except ArcaneAuthError as err:
+        hint = f" The API key needs the permission {permission}." if permission else ""
+        raise HomeAssistantError(f"Arcane refused the request (HTTP 401/403).{hint}") from err
+    except ArcaneError as err:
+        raise HomeAssistantError(f"Arcane: {err}") from err
+
+
 class ArcaneClient:
     """Talks to an Arcane manager; every call names its environment (host)."""
 
@@ -44,6 +57,7 @@ class ArcaneClient:
         path: str,
         *,
         params: dict[str, Any] | None = None,
+        json_body: Any = None,
         auth: bool = True,
         timeout: float = 30,
     ) -> Any:
@@ -52,6 +66,7 @@ class ArcaneClient:
                 method,
                 self._base + path,
                 params=params,
+                json=json_body,
                 headers=self._headers if auth else {"Accept": "application/json"},
                 timeout=aiohttp.ClientTimeout(total=timeout),
             ) as resp:
@@ -165,6 +180,32 @@ class ArcaneClient:
         container would kill its own request); this starts a separate upgrader instead.
         """
         await self._request("POST", f"{self._env(env_id)}/system/upgrade", timeout=120)
+
+    async def project_redeploy(self, env_id: str, project_id: str) -> None:
+        """Pull the images and recreate the project (streams until done)."""
+        await self._stream(
+            "POST", f"{self._env(env_id)}/projects/{project_id}/redeploy", timeout=1200
+        )
+
+    async def set_container_auto_update(
+        self, env_id: str, container_id: str, enabled: bool
+    ) -> None:
+        await self._request(
+            "PUT",
+            f"{self._env(env_id)}/containers/{container_id}/auto-update",
+            json_body={"enabled": enabled},
+        )
+
+    async def run_updater(self, env_id: str, *, dry_run: bool = False) -> dict[str, Any]:
+        """Apply all pending updates of a host (honours Arcane's opt-out labels)."""
+        body = await self._request(
+            "POST",
+            f"{self._env(env_id)}/updater/run",
+            params={"automatic": "true"},
+            json_body={"dryRun": dry_run},
+            timeout=1800,
+        )
+        return (body or {}).get("data") or {}
 
     async def project_up(self, env_id: str, project_id: str) -> None:
         await self._stream("POST", f"{self._env(env_id)}/projects/{project_id}/up")

@@ -5,11 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .api import ArcaneError
+from .api import ArcaneError, guarded
 from .coordinator import ArcaneConfigEntry, ArcaneCoordinator
 from .entity import ArcaneItemEntity, add_dynamic
 
@@ -23,6 +24,12 @@ async def async_setup_entry(
     add_dynamic(
         entry, async_add_entities, "containers",
         lambda env_id, n: [ContainerSwitch(coordinator, entry, env_id, "container", n)],
+    )
+    add_dynamic(
+        entry, async_add_entities, "containers",
+        lambda env_id, n: [
+            ContainerAutoUpdateSwitch(coordinator, entry, env_id, "container_autoupdate", n)
+        ],
     )
     add_dynamic(
         entry, async_add_entities, "projects",
@@ -88,3 +95,35 @@ class ProjectSwitch(_ArcaneSwitch):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self._run(self.coordinator.client.project_down(self._env_id, self.raw["id"]))
+
+
+class ContainerAutoUpdateSwitch(ArcaneItemEntity, SwitchEntity):
+    """Whether Arcane's scheduled updater may update this container (off by default)."""
+
+    _collection = "containers"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: ArcaneCoordinator, entry, env_id, kind, name) -> None:
+        super().__init__(coordinator, entry, env_id, kind, name)
+        self._attr_name = f"Container {name} auto-update"
+
+    @property
+    def is_on(self) -> bool | None:
+        raw = self.raw
+        return None if raw is None else bool(raw.get("autoUpdateEnabled"))
+
+    async def _set(self, enabled: bool) -> None:
+        await guarded(
+            self.coordinator.client.set_container_auto_update(
+                self._env_id, self.raw["id"], enabled
+            ),
+            "containers:autoupdate",
+        )
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._set(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._set(False)

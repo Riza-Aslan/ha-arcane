@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .api import ArcaneApiError, ArcaneAuthError, ArcaneError
+from .api import ArcaneApiError, ArcaneAuthError, ArcaneError, guarded
 from .coordinator import ArcaneConfigEntry, ArcaneCoordinator
 from .entity import ArcaneItemEntity, add_dynamic
 
@@ -31,6 +31,12 @@ async def async_setup_entry(
         async_add_entities,
         "containers",
         lambda env_id, n: [ContainerUpdate(coordinator, entry, env_id, "container_update", n)],
+    )
+    add_dynamic(
+        entry,
+        async_add_entities,
+        "projects",
+        lambda env_id, n: [ProjectUpdate(coordinator, entry, env_id, "project_update", n)],
     )
 
 
@@ -137,4 +143,85 @@ class ContainerUpdate(ArcaneItemEntity, UpdateEntity):
             raise HomeAssistantError(f"Arcane: {err}") from err
         if not self_upgrade:
             coord.unmark_upgrading(self._env_id, self._item)
+        await coord.async_request_refresh()
+
+
+class ProjectUpdate(ArcaneItemEntity, UpdateEntity):
+    """Compose project: install = pull all images and recreate (off by default).
+
+    Containers of a project already have their own update entities; this one is for
+    rolling out a whole project in one step.
+    """
+
+    _collection = "projects"
+    _attr_supported_features = UpdateEntityFeature.INSTALL | UpdateEntityFeature.PROGRESS
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: ArcaneCoordinator, entry, env_id, kind, name) -> None:
+        super().__init__(coordinator, entry, env_id, kind, name)
+        self._attr_name = f"Project {name}"
+
+    @property
+    def _info(self) -> dict:
+        return (self.raw or {}).get("updateInfo") or {}
+
+    @property
+    def _upgrade_key(self) -> str:
+        return f"project:{self._item}"  # kept apart from container names
+
+    @property
+    def installed_version(self) -> str | None:
+        return "current" if self._info else None
+
+    @property
+    def latest_version(self) -> str | None:
+        info = self._info
+        if not info:
+            return None
+        if info.get("hasUpdate"):
+            count = info.get("imagesWithUpdates") or 0
+            return f"{count} new image{'s' if count != 1 else ''}"
+        return "current"
+
+    @property
+    def title(self) -> str | None:
+        return self._item
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        info = self._info
+        services = info.get("serviceUpdates") or {}
+        return {
+            "status": info.get("status"),
+            "images": info.get("imageCount"),
+            "images_with_updates": info.get("imagesWithUpdates"),
+            "services_with_updates": sorted(
+                n for n, v in services.items() if (v.get("updateInfo") or {}).get("hasUpdate")
+            ),
+        }
+
+    @property
+    def in_progress(self) -> bool:
+        return self.coordinator.is_upgrading(self._env_id, self._upgrade_key)
+
+    @property
+    def available(self) -> bool:
+        if self.in_progress and self.raw is not None:
+            return True
+        return super().available
+
+    async def async_install(
+        self, version: str | None, backup: bool, **kwargs: Any
+    ) -> None:
+        raw = self.raw
+        if raw is None:
+            raise HomeAssistantError("Project no longer exists")
+        if raw.get("redeployDisabled"):
+            raise HomeAssistantError("Arcane cannot redeploy its own project")
+        coord = self.coordinator
+        coord.mark_upgrading(self._env_id, self._upgrade_key, None, blocking=True)
+        try:
+            await guarded(coord.client.project_redeploy(self._env_id, raw["id"]), "projects:deploy")
+        finally:
+            coord.unmark_upgrading(self._env_id, self._upgrade_key)
         await coord.async_request_refresh()
