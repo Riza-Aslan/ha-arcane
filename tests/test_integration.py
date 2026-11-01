@@ -369,6 +369,14 @@ async def test_normal_redeploy_clears_progress_afterwards(hass, server, state):
     assert hass.states.get("update.local_docker_container_web").attributes["in_progress"] is False
 
 
+def _device(hass, entry, ident):
+    """Find the device of this entry by identifier (works across HA versions)."""
+    for dev in dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id):
+        if (DOMAIN, ident) in dev.identifiers:
+            return dev
+    raise AssertionError(f"no device {ident}")
+
+
 async def _enable_entity(hass, entry, entity_id):
     """Enable an entity that is disabled by default and reload the entry."""
     reg = er.async_get(hass)
@@ -394,7 +402,7 @@ async def test_update_all_button_and_service(hass, server, state):
     await hass.services.async_call("button", "press", {"entity_id": "button.as_vps_update_all"}, blocking=True)
     await hass.async_block_till_done()
     assert state["calls"] == [("POST", "/api/environments/h2/updater/run", "true", {"dryRun": False})]
-    dev = dr.async_get(hass).async_get_device_by_identifier((DOMAIN, f"{entry.entry_id}|h2"), entry.entry_id)
+    dev = _device(hass, entry, f"{entry.entry_id}|h2")
     state["calls"].clear()
     out = await hass.services.async_call(
         DOMAIN, "update_all", {"device_id": dev.id, "dry_run": True}, blocking=True, return_response=True)
@@ -406,7 +414,7 @@ async def test_update_all_marks_progress_and_reports_errors(hass, server, state)
     from homeassistant.exceptions import HomeAssistantError
 
     entry = await _setup(hass, server)
-    dev = dr.async_get(hass).async_get_device_by_identifier((DOMAIN, f"{entry.entry_id}|0"), entry.entry_id)
+    dev = _device(hass, entry, f"{entry.entry_id}|0")
     state["updater_status"] = 403
     with pytest.raises(HomeAssistantError, match="image-updates:check"):
         await hass.services.async_call(DOMAIN, "update_all", {"device_id": dev.id}, blocking=True)
@@ -415,7 +423,7 @@ async def test_update_all_marks_progress_and_reports_errors(hass, server, state)
 
 async def test_check_updates_service(hass, server, state):
     entry = await _setup(hass, server)
-    dev = dr.async_get(hass).async_get_device_by_identifier((DOMAIN, f"{entry.entry_id}|h2"), entry.entry_id)
+    dev = _device(hass, entry, f"{entry.entry_id}|h2")
     state["calls"].clear()
     await hass.services.async_call(DOMAIN, "check_updates", {"device_id": dev.id}, blocking=True)
     assert state["calls"] == [("POST", "/api/environments/h2/image-updates/check-all")]
@@ -425,7 +433,7 @@ async def test_services_reject_the_manager_device(hass, server):
     from homeassistant.exceptions import ServiceValidationError
 
     entry = await _setup(hass, server)
-    dev = dr.async_get(hass).async_get_device_by_identifier((DOMAIN, entry.entry_id), entry.entry_id)
+    dev = _device(hass, entry, entry.entry_id)
     with pytest.raises(ServiceValidationError, match="manager"):
         await hass.services.async_call(DOMAIN, "check_updates", {"device_id": dev.id}, blocking=True)
 
