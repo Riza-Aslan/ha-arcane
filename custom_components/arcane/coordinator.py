@@ -109,6 +109,7 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
         self._missing: dict[str, float] = {}  # entity_id -> first time seen missing
         self._upgrading: dict[tuple[str, str], _Upgrade] = {}
         self._watch: CALLBACK_TYPE | None = None
+        self.manager_device_id: str | None = None  # set up before the platforms load
         self._errors_since: dict[str, float] = {}  # env_id -> first time check errors seen
         self._issues: set[str] = set()
 

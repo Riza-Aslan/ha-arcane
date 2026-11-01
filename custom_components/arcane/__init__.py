@@ -6,7 +6,7 @@ import logging
 
 from homeassistant.const import CONF_URL, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -14,6 +14,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import ArcaneClient
 from .const import CONF_API_KEY, CONF_ENVIRONMENT_ID, CONF_ENVIRONMENTS, DOMAIN, SEP
 from .coordinator import ArcaneConfigEntry, ArcaneCoordinator
+from .entity import instance_device_info
 from .services import async_register_services
 
 _LOGGER = logging.getLogger(__name__)
@@ -86,6 +87,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ArcaneConfigEntry) -> bo
     coordinator = ArcaneCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+    # The manager is the parent of every host device: create it first so hosts can point to its id.
+    manager = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, **instance_device_info(entry, coordinator.data)
+    )
+    coordinator.manager_device_id = manager.id
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

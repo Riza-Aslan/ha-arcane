@@ -492,3 +492,12 @@ async def test_reconfigure_changes_key_and_keeps_it_when_left_empty(hass, server
     assert entry.data[CONF_API_KEY] == KEY
     await hass.async_block_till_done()
     assert entry.state is ConfigEntryState.LOADED
+
+
+async def test_host_devices_hang_below_the_manager_without_deprecation(hass, server, caplog):
+    entry = await _setup(hass, server)
+    manager = _device(hass, entry, entry.entry_id)
+    for ident in ("0", "h2"):
+        host = _device(hass, entry, f"{entry.entry_id}|{ident}")
+        assert host.via_device_id == manager.id
+    assert "via_device" not in caplog.text  # no deprecation warning from HA

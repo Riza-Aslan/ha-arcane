@@ -26,15 +26,26 @@ def instance_device_info(entry: ArcaneConfigEntry, data: ArcaneData | None) -> D
     )
 
 
-def env_device_info(entry: ArcaneConfigEntry, env: EnvData) -> DeviceInfo:
-    return DeviceInfo(
+# Newer HA versions deprecate `via_device` in favour of `via_device_id`; older ones only know the former.
+_HAS_VIA_DEVICE_ID = "via_device_id" in DeviceInfo.__annotations__
+
+
+def env_device_info(
+    entry: ArcaneConfigEntry, env: EnvData, manager_device_id: str | None
+) -> DeviceInfo:
+    info = DeviceInfo(
         identifiers={(DOMAIN, f"{entry.entry_id}{SEP}{env.id}")},
         name=env.name,
         manufacturer="Arcane",
         model="Docker host (agent)" if env.is_edge else "Docker host (local)",
-        via_device=(DOMAIN, entry.entry_id),
         configuration_url=entry.data[CONF_URL],
     )
+    if _HAS_VIA_DEVICE_ID:
+        if manager_device_id:
+            info["via_device_id"] = manager_device_id
+    else:
+        info["via_device"] = (DOMAIN, entry.entry_id)
+    return info
 
 
 class ArcaneInstanceEntity(CoordinatorEntity[ArcaneCoordinator]):
@@ -66,7 +77,9 @@ class ArcaneEntity(CoordinatorEntity[ArcaneCoordinator]):
         self._entry = entry
         self._env_id = env_id
         self._attr_unique_id = SEP.join([entry.entry_id, env_id, suffix])
-        self._attr_device_info = env_device_info(entry, coordinator.data.environments[env_id])
+        self._attr_device_info = env_device_info(
+            entry, coordinator.data.environments[env_id], coordinator.manager_device_id
+        )
 
     @property
     def env(self) -> EnvData | None:
