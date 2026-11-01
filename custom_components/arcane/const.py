@@ -13,6 +13,7 @@ CONF_STALE_HOURS = "stale_hours"  # option: grace period before removal (0 = nev
 
 CONF_SCAN_INTERVAL = "scan_interval"  # option: seconds between polls
 CONF_EVENTS = "events"  # option: fire events on the bus
+CONF_READ_ONLY = "read_only"  # option: refuse every write action
 
 DEFAULT_STALE_HOURS = 24
 DEFAULT_SCAN_SECONDS = 60
@@ -33,3 +34,7 @@ ATTR_DRY_RUN = "dry_run"
 
 EVENT_CONTAINER_STATE = "arcane_container_state_changed"
 EVENT_PROJECT_STATE = "arcane_project_state_changed"
+EVENT_CONTAINER_HEALTH = "arcane_container_health_changed"
+SERVICE_PRUNE_IMAGES = "prune_images"
+# Host statistics are only fetched for hosts where one of these entities is enabled.
+STAT_KEYS = ("cpu_usage", "memory_usage", "disk_usage")

@@ -90,11 +90,27 @@ def make_app(state):
         return _env({"message": "started"})
 
     r.add_post("/api/environments/{eid}/system/upgrade", upgrade)
+
+    async def stats_ws(request):
+        calls.append(("WS", request.path))
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        await ws.send_str(json.dumps({"cpuUsage": 38.2, "memoryUsage": 500, "memoryTotal": 1000,
+                                      "diskUsage": 25, "diskTotal": 100}))
+        await ws.close()
+        return ws
+
+    async def prune(request):
+        calls.append((request.method, request.path, await request.json()))
+        return _env({"imagesDeleted": ["a", "b", "c"], "spaceReclaimed": 123456})
+
+    r.add_get("/api/environments/{eid}/ws/system/stats", stats_ws)
+    r.add_post("/api/environments/{eid}/images/prune", prune)
     get("/api/environments/{eid}/images/counts", lambda q: _env({
         "imagesInuse": 5, "imagesUnused": 6, "totalImages": 11, "totalImageSize": 2_134_602_826}))
     get("/api/environments/{eid}/volumes/counts", lambda q: _env({"inuse": 5, "unused": 7, "total": 12}))
     get("/api/environments/{eid}/networks/counts", lambda q: _env({"inuse": 8, "unused": 0, "total": 8}))
-    get("/api/environments/{eid}/system/docker/info", lambda q: {"ServerVersion": "28.1.1", "Containers": 6})
+    get("/api/environments/{eid}/system/docker/info", lambda q: web.json_response({"ServerVersion": "28.1.1", "Containers": 6}))
 
     async def autoupdate(request):
         calls.append((request.method, request.path, await request.json()))

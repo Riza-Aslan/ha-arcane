@@ -26,6 +26,9 @@ from .api import ArcaneAuthError, ArcaneClient, ArcaneError, guarded
 from .const import (
     CONF_ENVIRONMENTS,
     CONF_EVENTS,
+    CONF_READ_ONLY,
+    EVENT_CONTAINER_HEALTH,
+    STAT_KEYS,
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_SECONDS,
     EVENT_CONTAINER_STATE,
@@ -79,6 +82,7 @@ class EnvData:
     volume_counts: dict[str, Any] = field(default_factory=dict)
     network_counts: dict[str, Any] = field(default_factory=dict)
     docker: dict[str, Any] = field(default_factory=dict)
+    stats: dict[str, Any] = field(default_factory=dict)
     containers: dict[str, dict] = field(default_factory=dict)  # key: container name
     projects: dict[str, dict] = field(default_factory=dict)  # key: project name
 
@@ -129,6 +133,8 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             ),
         )
         self.client = client
+        client.read_only = bool(entry.options.get(CONF_READ_ONLY, False))
+        self._stat_envs: set[str] = set()
         self._store: Store[dict[str, float]] = Store(
             hass, 1, f"{DOMAIN}.{entry.entry_id}.missing"
         )
@@ -230,6 +236,7 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             env.volume_counts = prev.volume_counts
             env.network_counts = prev.network_counts
             env.docker = prev.docker
+            env.stats = prev.stats
             env.containers = prev.containers
             env.projects = prev.projects
         if not raw.get("enabled", True) or raw.get("status", "online") != "online":
@@ -248,14 +255,17 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
         env.ok = True
         env.container_counts, env.project_counts, env.image_updates = cc, pc, iu
         # Optional extras: a key without these permissions must not break the host.
-        extras = await asyncio.gather(
-            self.client.image_counts(env.id),
-            self.client.volume_counts(env.id),
-            self.client.network_counts(env.id),
-            *([] if env.docker else [self.client.docker_info(env.id)]),
-            return_exceptions=True,
-        )
-        for attr, res in zip(("image_counts", "volume_counts", "network_counts", "docker"), extras):
+        wanted = [
+            ("image_counts", self.client.image_counts(env.id)),
+            ("volume_counts", self.client.volume_counts(env.id)),
+            ("network_counts", self.client.network_counts(env.id)),
+        ]
+        if not env.docker:
+            wanted.append(("docker", self.client.docker_info(env.id)))
+        if env.id in self._stat_envs:
+            wanted.append(("stats", self.client.system_stats(env.id)))
+        extras = await asyncio.gather(*(c for _, c in wanted), return_exceptions=True)
+        for (attr, _), res in zip(wanted, extras):
             if isinstance(res, dict):
                 setattr(env, attr, res)
             elif isinstance(res, Exception) and not isinstance(res, ArcaneError):
@@ -275,6 +285,7 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             self._note_manager_offline()
             raise UpdateFailed(f"Arcane not reachable: {err}") from err
 
+        self._stat_envs = self._hosts_with_stat_entities()
         wanted = {str(i) for i in (self.config_entry.options.get(CONF_ENVIRONMENTS) or [])}
         raw_envs = [e for e in raw_envs if not wanted or str(e["id"]) in wanted]
         prev = self.data.environments if self.data else {}
@@ -295,6 +306,17 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
         self._sync_issues(data)
         return data
 
+    def _hosts_with_stat_entities(self) -> set[str]:
+        """Hosts where a CPU/memory/disk entity is enabled: only those cost a websocket call."""
+        eid = self.config_entry.entry_id
+        keys = {f"{k}" for k in STAT_KEYS}
+        out: set[str] = set()
+        for ent in er.async_entries_for_config_entry(er.async_get(self.hass), eid):
+            parts = (ent.unique_id or "").split(SEP)
+            if len(parts) == 3 and parts[2] in keys and ent.disabled_by is None:
+                out.add(parts[1])
+        return out
+
     # --- events -------------------------------------------------------------
 
     @callback
@@ -309,9 +331,15 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             base = {"environment": env.name, "environment_id": env.id}
             for name, cont in env.containers.items():
                 was = old.containers.get(name)
+                if was is not None and health(was) != health(cont):
+                    self.hass.bus.async_fire(
+                        EVENT_CONTAINER_HEALTH,
+                        {**base, "container": name, "health": health(cont),
+                         "previous_health": health(was)},
+                    )
                 if was is None or was.get("state") == cont.get("state"):
                     continue
-                code = exit_code(cont)
+                code = exit_code(cont)  # noqa: E501
                 self.hass.bus.async_fire(
                     EVENT_CONTAINER_STATE,
                     {
@@ -335,6 +363,15 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
                 )
 
     # --- actions on a whole host -------------------------------------------
+
+    async def async_prune_images(self, env_id: str) -> dict[str, Any]:
+        """Remove unused images of one host; returns what was deleted and how much space."""
+        report = await guarded(self.client.prune_images(env_id), "images:prune")
+        await self.async_request_refresh()
+        return {
+            "images_deleted": len(report.get("imagesDeleted") or []),
+            "space_reclaimed": int(report.get("spaceReclaimed") or 0),
+        }
 
     async def async_check_updates(self, env_id: str) -> None:
         await guarded(self.client.check_all_image_updates(env_id), "image-updates:check")

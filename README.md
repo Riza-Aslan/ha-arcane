@@ -19,9 +19,9 @@ The integration reads **all environments** (hosts) of your Arcane manager. Every
 | Device | What |
 |---|---|
 | **Arcane** (the manager) | Button "Clean up missing" |
-| **One per host** (e.g. *As-VPS*) | `binary_sensor` Online (stays available when the host is down). Sensors: containers running / stopped / unhealthy / total, projects running / stopped / total, images total / unused / with updates, image storage (GB), volumes total / unused, networks, update check errors, Docker version (disabled by default). Buttons: "Check image updates", "Update all" |
-| – per container | `binary_sensor` unhealthy (only for containers with a Docker health check), `switch` start/stop, `button` restart, `update` (install = redeploy with pull), `switch` auto-update (config, disabled by default) |
-| – per project | `switch` compose up/down, `button` restart, `update` (install = pull all images and recreate; disabled by default) |
+| **One per host** (e.g. *As-VPS*) | `binary_sensor` Online (stays available when the host is down). Sensors: containers running / stopped / unhealthy / total, projects running / stopped / total, images total / unused / with updates, image storage (GB), volumes total / unused, networks, update check errors, Docker version, CPU / memory / disk usage of the host (all disabled by default; the statistics are only fetched for hosts where you enable one of them). Buttons: "Check image updates", "Update all", "Remove unused images" (disabled by default) |
+| – per container | `binary_sensor` unhealthy (only for containers with a Docker health check), `sensor` state (disabled by default), `switch` start/stop, `button` restart, `update` (install = redeploy with pull), `switch` auto-update (config, disabled by default) |
+| – per project | `sensor` services running (disabled by default), `switch` compose up/down, `button` restart, `update` (install = pull all images and recreate; disabled by default) |
 
 Entity IDs follow the device name, e.g. `switch.as_vps_container_traefik_vps`.
 
@@ -46,6 +46,7 @@ While an update runs, the update entity shows **in progress** and the integratio
 | Service | What |
 |---|---|
 | `arcane.check_updates` | Ask the registries for new images on the selected hosts (devices) |
+| `arcane.prune_images` | Delete the images no container uses on the selected hosts. **Only images**: volumes, containers and networks are never touched. Returns `images_deleted` and `space_reclaimed` (bytes) per host |
 | `arcane.update_all` | Apply all pending updates of the selected hosts like Arcane's updater (containers excluded in Arcane are skipped). `dry_run: true` only reports. Returns the counters per host, so an automation can send them |
 
 ```yaml
@@ -63,6 +64,7 @@ State changes between two polls fire events you can use as automation triggers (
 | Event | Data |
 |---|---|
 | `arcane_container_state_changed` | `environment`, `environment_id`, `container`, `state`, `previous_state`, `exit_code`, `crashed` (was running, stopped with a non-zero code), `oom_killed` (exit code 137) |
+| `arcane_container_health_changed` | `environment`, `environment_id`, `container`, `health` (`healthy` / `unhealthy` / `starting` / none), `previous_health` |
 | `arcane_project_state_changed` | `environment`, `environment_id`, `project`, `status`, `previous_status` |
 
 ```yaml
@@ -77,7 +79,7 @@ actions:
       message: "{{ trigger.event.data.container }} on {{ trigger.event.data.environment }} stopped (exit {{ trigger.event.data.exit_code }})"
 ```
 
-Events can be switched off in the options, where you can also set the polling interval (15 s to 1 h, default 60 s).
+In the options you can switch events off, set the polling interval (15 s to 1 h, default 60 s) and turn on **Read only**: then every start, stop, restart, update, prune and so on is refused by the integration itself, while reading and *Check image updates* keep working. Handy for a family or guest Home Assistant.
 
 ## Repairs and reconfiguring
 
@@ -111,7 +113,7 @@ If the key is revoked or expires, Home Assistant starts a re-authentication flow
 ## Tested
 
 - `pytest` (under a second, no network) runs the integration in a real Home Assistant test harness against a fake Arcane server: config flow (good key, bad key, unreachable), entity states, all actions including the streaming `/up`, dynamic entities, digest updates and re-auth.
-- Read path verified against a live **Arcane v2.16.1** (config flow, all sensors, container switch/button/update entity). An API key with only `containers:list`, `projects:list`, `image-updates:read` and `environments:list` is enough to set up and read everything. Add `containers:start|stop|restart|redeploy|autoupdate`, `projects:deploy|down|restart`, `image-updates:check` and `system:upgrade` for the switches, buttons, services and *Install*.
+- Read path verified against a live **Arcane v2.16.1** (config flow, all sensors, container switch/button/update entity). An API key with only `containers:list`, `projects:list`, `image-updates:read` and `environments:list` is enough to set up and read everything. Add `containers:start|stop|restart|redeploy|autoupdate`, `projects:deploy|down|restart`, `image-updates:check`, `system:upgrade`, `system:read` (host statistics) and `images:prune` for the switches, buttons, services and *Install*.
 - Write actions (start/stop/restart/redeploy, project up/down) are covered by the fake server only, not yet against a live instance.
 
 ```bash

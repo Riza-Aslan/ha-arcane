@@ -30,6 +30,7 @@ from .const import (
     CONF_API_KEY,
     CONF_ENVIRONMENTS,
     CONF_EVENTS,
+    CONF_READ_ONLY,
     CONF_SCAN_INTERVAL,
     CONF_STALE_HOURS,
     DEFAULT_SCAN_SECONDS,
@@ -189,6 +190,7 @@ class ArcaneOptionsFlow(OptionsFlowWithReload):
                         )
                     ),
                     vol.Required(CONF_EVENTS, default=opts.get(CONF_EVENTS, True)): bool,
+                    vol.Required(CONF_READ_ONLY, default=opts.get(CONF_READ_ONLY, False)): bool,
                     vol.Required(
                         CONF_STALE_HOURS, default=opts.get(CONF_STALE_HOURS, DEFAULT_STALE_HOURS)
                     ): NumberSelector(

@@ -30,6 +30,7 @@ async def async_setup_entry(
         lambda env_id, _n: [
             CheckUpdatesButton(coordinator, entry, env_id),
             UpdateAllButton(coordinator, entry, env_id),
+            PruneImagesButton(coordinator, entry, env_id),
         ],
     )
     add_dynamic(
@@ -90,6 +91,20 @@ class UpdateAllButton(ArcaneEntity, ButtonEntity):
                 _LOGGER.error("Update all on %s failed: %s", self.device_info["name"], err)
 
         self._entry.async_create_task(self.hass, _run(), "arcane update all")
+
+
+class PruneImagesButton(ArcaneEntity, ButtonEntity):
+    """Delete the images no container uses. Volumes, containers and networks are never touched."""
+
+    _attr_translation_key = "prune_images"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: ArcaneCoordinator, entry, env_id: str) -> None:
+        super().__init__(coordinator, entry, env_id, "prune_images")
+
+    async def async_press(self) -> None:
+        await self.coordinator.async_prune_images(self._env_id)
 
 
 class ContainerRestartButton(ArcaneItemEntity, ButtonEntity):

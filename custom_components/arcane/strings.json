@@ -83,6 +83,15 @@
       },
       "docker_version": {
         "name": "Docker version"
+      },
+      "cpu_usage": {
+        "name": "CPU usage"
+      },
+      "memory_usage": {
+        "name": "Memory usage"
+      },
+      "disk_usage": {
+        "name": "Disk usage"
       }
     },
     "button": {
@@ -94,6 +103,9 @@
       },
       "update_all": {
         "name": "Update all"
+      },
+      "prune_images": {
+        "name": "Remove unused images"
       }
     },
     "binary_sensor": {
@@ -111,7 +123,8 @@
           "environments": "Hosts",
           "stale_hours": "Grace period before removal (hours)",
           "scan_interval": "Polling interval (seconds)",
-          "events": "Fire events on state changes"
+          "events": "Fire events on state changes",
+          "read_only": "Read only (refuse start, stop, update, prune ...)"
         }
       }
     }
@@ -144,6 +157,16 @@
         "dry_run": {
           "name": "Dry run",
           "description": "Only report what would be updated."
+        }
+      }
+    },
+    "prune_images": {
+      "name": "Remove unused images",
+      "description": "Delete all images that no container uses on the selected hosts. Volumes, containers and networks are not touched. Returns how many images and how many bytes were freed per host.",
+      "fields": {
+        "device_id": {
+          "name": "Hosts",
+          "description": "The Arcane hosts (devices) to clean."
         }
       }
     }

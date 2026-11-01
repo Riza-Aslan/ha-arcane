@@ -12,12 +12,12 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import EntityCategory, UnitOfInformation
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfInformation
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import ArcaneConfigEntry, ArcaneCoordinator, EnvData, health
-from .entity import ArcaneEntity, add_dynamic
+from .entity import ArcaneEntity, ArcaneItemEntity, add_dynamic
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -47,6 +47,12 @@ SENSORS: tuple[ArcaneSensorDescription, ...] = tuple(
         ("image_update_errors", "image_updates", "errorsCount"),
     )
 )
+
+
+def _pct(used: Any, total: Any) -> float | None:
+    if not isinstance(used, (int, float)) or not isinstance(total, (int, float)) or total <= 0:
+        return None
+    return round(used / total * 100, 1)
 
 
 def _unhealthy(env: EnvData) -> int:
@@ -89,6 +95,33 @@ SENSORS = SENSORS + (
         ),
     ),
     ArcaneSensorDescription(
+        key="cpu_usage",
+        translation_key="cpu_usage",
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=0,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+        value_fn=lambda e: e.stats.get("cpuUsage"),
+    ),
+    ArcaneSensorDescription(
+        key="memory_usage",
+        translation_key="memory_usage",
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=0,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+        value_fn=lambda e: _pct(e.stats.get("memoryUsage"), e.stats.get("memoryTotal")),
+    ),
+    ArcaneSensorDescription(
+        key="disk_usage",
+        translation_key="disk_usage",
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=0,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+        value_fn=lambda e: _pct(e.stats.get("diskUsage"), e.stats.get("diskTotal")),
+    ),
+    ArcaneSensorDescription(
         key="docker_version",
         translation_key="docker_version",
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -112,6 +145,16 @@ async def async_setup_entry(
     )
 
 
+    add_dynamic(
+        entry, async_add_entities, "containers",
+        lambda env_id, n: [ContainerState(coordinator, entry, env_id, "container_state", n)],
+    )
+    add_dynamic(
+        entry, async_add_entities, "projects",
+        lambda env_id, n: [ProjectServices(coordinator, entry, env_id, "project_services", n)],
+    )
+
+
 class ArcaneSensor(ArcaneEntity, SensorEntity):
     entity_description: ArcaneSensorDescription
 
@@ -129,3 +172,48 @@ class ArcaneSensor(ArcaneEntity, SensorEntity):
     def native_value(self) -> Any:
         env = self.env
         return None if env is None else self.entity_description.value_fn(env)
+
+
+class ContainerState(ArcaneItemEntity, SensorEntity):
+    """Docker's own state text of a container (running, exited, paused ...)."""
+
+    _collection = "containers"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator, entry, env_id, kind, name) -> None:
+        super().__init__(coordinator, entry, env_id, kind, name)
+        self._attr_name = f"Container {name} state"
+
+    @property
+    def native_value(self) -> str | None:
+        raw = self.raw
+        return None if raw is None else raw.get("state")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        raw = self.raw or {}
+        return {"status": raw.get("status"), "image": raw.get("image"), "created": raw.get("created")}
+
+
+class ProjectServices(ArcaneItemEntity, SensorEntity):
+    """Running services of a Compose project; the total is an attribute."""
+
+    _collection = "projects"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator, entry, env_id, kind, name) -> None:
+        super().__init__(coordinator, entry, env_id, kind, name)
+        self._attr_name = f"Project {name} services running"
+
+    @property
+    def native_value(self) -> int | None:
+        raw = self.raw
+        return None if raw is None else raw.get("runningCount")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        raw = self.raw or {}
+        return {"services": raw.get("serviceCount"), "status": raw.get("status")}

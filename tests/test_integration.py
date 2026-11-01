@@ -595,3 +595,75 @@ async def test_diagnostics_contain_no_names_or_secrets(hass, server):
     out = str(await async_get_config_entry_diagnostics(hass, entry))
     assert KEY not in out and "web" not in out and "127.0.0.1" not in out
     assert "images_total" not in out and "'containers': 2" in out
+
+
+async def test_prune_images_only_sends_image_mode_and_reports(hass, server, state):
+    entry = await _setup(hass, server)
+    btn = _find(hass, entry, "|h2|prune_images")
+    reg = er.async_get(hass)
+    assert reg.async_get(btn).disabled_by is not None  # off by default
+    reg.async_update_entity(btn, disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    state["calls"].clear()
+    await hass.services.async_call("button", "press", {"entity_id": btn}, blocking=True)
+    assert state["calls"] == [("POST", "/api/environments/h2/images/prune", {"mode": "all"})]
+    dev = _device(hass, entry, f"{entry.entry_id}|h2")
+    out = await hass.services.async_call(DOMAIN, "prune_images", {"device_id": dev.id}, blocking=True, return_response=True)
+    assert out == {"hosts": {"As-VPS": {"images_deleted": 3, "space_reclaimed": 123456}}}
+
+
+async def test_host_stats_only_fetched_when_a_stat_entity_is_enabled(hass, server, state):
+    entry = await _setup(hass, server)
+    assert not [c for c in state["calls"] if c[0] == "WS"]  # all stat sensors are off by default
+    reg = er.async_get(hass)
+    for key in ("cpu_usage", "memory_usage", "disk_usage"):
+        reg.async_update_entity(_find(hass, entry, f"|h2|{key}"), disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert [c for c in state["calls"] if c[0] == "WS"] == [("WS", "/api/environments/h2/ws/system/stats")]  # h2 only
+    assert float(hass.states.get(_find(hass, entry, "|h2|cpu_usage")).state) == pytest.approx(38.2)
+    assert float(hass.states.get(_find(hass, entry, "|h2|memory_usage")).state) == 50.0
+    assert float(hass.states.get(_find(hass, entry, "|h2|disk_usage")).state) == 25.0
+
+
+async def test_read_only_blocks_every_write_but_not_reads_or_update_checks(hass, server, state):
+    from homeassistant.exceptions import HomeAssistantError
+
+    entry = await _setup(hass, server)
+    hass.config_entries.async_update_entry(entry, options={"read_only": True})
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    state["calls"].clear()
+    with pytest.raises(HomeAssistantError, match="read only"):
+        await hass.services.async_call("switch", "turn_off", {"entity_id": "switch.as_vps_container_web"}, blocking=True)
+    # "Update all" runs in the background: it must not raise, but it must not write either
+    await hass.services.async_call("button", "press", {"entity_id": "button.as_vps_update_all"}, blocking=True)
+    await hass.async_block_till_done()
+    with pytest.raises(HomeAssistantError, match="read only"):
+        await hass.services.async_call(DOMAIN, "prune_images", {"device_id": _device(hass, entry, f"{entry.entry_id}|h2").id}, blocking=True)
+    assert [c for c in state["calls"] if c[0] != "GET"] == []
+    await hass.services.async_call("button", "press", {"entity_id": "button.as_vps_check_image_updates"}, blocking=True)
+    assert [c[1] for c in state["calls"] if c[0] == "POST"] == ["/api/environments/h2/image-updates/check-all"]
+
+
+async def test_container_state_and_project_services_sensors(hass, server):
+    entry = await _setup(hass, server)
+    reg = er.async_get(hass)
+    for suffix in ("|0|container_state|web", "|0|project_services|shop"):
+        reg.async_update_entity(_find(hass, entry, suffix), disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(_find(hass, entry, "|0|container_state|web")).state == "running"
+    reg.async_update_entity(_find(hass, entry, "|0|docker_version"), disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(_find(hass, entry, "|0|docker_version")).state == "28.1.1"
+
+
+async def test_health_change_fires_an_event(hass, server, state):
+    entry = await _setup(hass, server)
+    events = async_capture_events(hass, "arcane_container_health_changed")
+    state["hosts"]["0"]["containers"][0]["status"] = "Up 2h (unhealthy)"
+    await _refresh(hass, entry)
+    assert [(e.data["container"], e.data["health"], e.data["previous_health"]) for e in events] == [("web", "unhealthy", "healthy")]

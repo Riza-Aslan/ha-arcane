@@ -16,6 +16,7 @@ from .const import (
     DOMAIN,
     SEP,
     SERVICE_CHECK_UPDATES,
+    SERVICE_PRUNE_IMAGES,
     SERVICE_UPDATE_ALL,
 )
 from .coordinator import ArcaneCoordinator
@@ -64,6 +65,16 @@ def async_register_services(hass: HomeAssistant) -> None:
             )
         return {"hosts": hosts}
 
+    async def _prune(call: ServiceCall) -> dict[str, Any]:
+        hosts: dict[str, Any] = {}
+        for coordinator, env_id, name in _hosts(hass, call.data[ATTR_DEVICE_ID]):
+            hosts[name] = await coordinator.async_prune_images(env_id)
+        return {"hosts": hosts}
+
+    hass.services.async_register(
+        DOMAIN, SERVICE_PRUNE_IMAGES, _prune, schema=SCHEMA_CHECK,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
     hass.services.async_register(DOMAIN, SERVICE_CHECK_UPDATES, _check, schema=SCHEMA_CHECK)
     hass.services.async_register(
         DOMAIN,

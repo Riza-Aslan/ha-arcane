@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable
 from typing import Any
@@ -50,6 +51,12 @@ class ArcaneClient:
         self._session = session
         self._base = base_url.rstrip("/") + "/api"
         self._headers = {"X-Api-Key": api_key, "Accept": "application/json"}
+        self.read_only = False  # refuse every write (set from the options)
+
+    def _guard_write(self, method: str, path: str) -> None:
+        # checking images for updates only reads from registries, it changes nothing
+        if self.read_only and method != "GET" and not path.endswith("/image-updates/check-all"):
+            raise ArcaneApiError("Control is switched off in the Arcane options (read only)")
 
     async def _request(
         self,
@@ -61,6 +68,7 @@ class ArcaneClient:
         auth: bool = True,
         timeout: float = 30,
     ) -> Any:
+        self._guard_write(method, path)
         try:
             async with self._session.request(
                 method,
@@ -83,6 +91,7 @@ class ArcaneClient:
 
     async def _stream(self, method: str, path: str, timeout: float = 600) -> None:
         """Run a streaming (NDJSON) operation until `done` or `error`."""
+        self._guard_write(method, path)
         try:
             async with self._session.request(
                 method,
@@ -171,6 +180,32 @@ class ArcaneClient:
         """Docker daemon info (not wrapped in the usual envelope)."""
         body = await self._request("GET", f"{self._env(env_id)}/system/docker/info")
         return (body or {}).get("data", body) or {}
+
+    async def system_stats(self, env_id: str) -> dict[str, Any]:
+        """One sample of the host's CPU/memory/disk (Arcane only offers it as a websocket)."""
+        path = f"{self._env(env_id)}/ws/system/stats"
+        try:
+            async with asyncio.timeout(15):
+                async with self._session.ws_connect(
+                    self._base + path, params={"interval": 2}, headers=self._headers
+                ) as ws:
+                    msg = await ws.receive()
+                    if msg.type is aiohttp.WSMsgType.TEXT:
+                        return json.loads(msg.data)
+                    raise ArcaneApiError(f"No statistics received from {path}")
+        except aiohttp.WSServerHandshakeError as err:
+            if err.status in (401, 403):
+                raise ArcaneAuthError(f"HTTP {err.status} for {path}") from err
+            raise ArcaneApiError(f"HTTP {err.status} for {path}", err.status) from err
+        except (aiohttp.ClientError, TimeoutError, ValueError) as err:
+            raise ArcaneConnectionError(str(err)) from err
+
+    async def prune_images(self, env_id: str) -> dict[str, Any]:
+        """Remove every image no container uses (needs `images:prune`). Touches nothing else."""
+        body = await self._request(
+            "POST", f"{self._env(env_id)}/images/prune", json_body={"mode": "all"}, timeout=600
+        )
+        return (body or {}).get("data") or {}
 
     async def containers(self, env_id: str) -> list[dict]:
         return await self._paged(f"{self._env(env_id)}/containers")

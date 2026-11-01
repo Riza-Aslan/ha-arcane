@@ -22,3 +22,13 @@ update_all:
       default: false
       selector:
         boolean:
+
+prune_images:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          multiple: true
+          filter:
+            integration: arcane
