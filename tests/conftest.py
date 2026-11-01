@@ -90,6 +90,11 @@ def make_app(state):
         return _env({"message": "started"})
 
     r.add_post("/api/environments/{eid}/system/upgrade", upgrade)
+    get("/api/environments/{eid}/images/counts", lambda q: _env({
+        "imagesInuse": 5, "imagesUnused": 6, "totalImages": 11, "totalImageSize": 2_134_602_826}))
+    get("/api/environments/{eid}/volumes/counts", lambda q: _env({"inuse": 5, "unused": 7, "total": 12}))
+    get("/api/environments/{eid}/networks/counts", lambda q: _env({"inuse": 8, "unused": 0, "total": 8}))
+    get("/api/environments/{eid}/system/docker/info", lambda q: {"ServerVersion": "28.1.1", "Containers": 6})
 
     async def autoupdate(request):
         calls.append((request.method, request.path, await request.json()))
@@ -115,7 +120,7 @@ def state():
             "0": {
                 "name": "Local Docker",
                 "containers": [
-                    {"id": "c1", "names": ["/web"], "image": "nginx:latest", "state": "running", "status": "Up 2h",
+                    {"id": "c1", "names": ["/web"], "image": "nginx:latest", "state": "running", "status": "Up 2h (healthy)",
                      "updateInfo": {"hasUpdate": True, "currentVersion": "1.27", "latestVersion": "1.28", "updateType": "tag", "error": ""}},
                     {"id": "c2", "names": ["/db"], "image": "postgres:17", "state": "exited", "status": "Exited",
                      "updateInfo": {"hasUpdate": False, "currentVersion": "17", "error": ""}},

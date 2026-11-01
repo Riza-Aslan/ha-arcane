@@ -154,6 +154,24 @@ class ArcaneClient:
         body = await self._request("GET", f"{self._env(env_id)}/image-updates/summary")
         return (body or {}).get("data", {})
 
+    async def _data(self, path: str) -> dict[str, Any]:
+        body = await self._request("GET", path)
+        return (body or {}).get("data", {}) or {}
+
+    async def image_counts(self, env_id: str) -> dict[str, Any]:
+        return await self._data(f"{self._env(env_id)}/images/counts")
+
+    async def volume_counts(self, env_id: str) -> dict[str, Any]:
+        return await self._data(f"{self._env(env_id)}/volumes/counts")
+
+    async def network_counts(self, env_id: str) -> dict[str, Any]:
+        return await self._data(f"{self._env(env_id)}/networks/counts")
+
+    async def docker_info(self, env_id: str) -> dict[str, Any]:
+        """Docker daemon info (not wrapped in the usual envelope)."""
+        body = await self._request("GET", f"{self._env(env_id)}/system/docker/info")
+        return (body or {}).get("data", body) or {}
+
     async def containers(self, env_id: str) -> list[dict]:
         return await self._paged(f"{self._env(env_id)}/containers")
 

@@ -59,7 +59,15 @@
       },
       "image_update_errors": {
         "name": "Fehler bei Update-Prüfung"
-      }
+      },
+      "containers_unhealthy": "Container nicht gesund",
+      "images_total": "Images",
+      "images_unused": "Ungenutzte Images",
+      "volumes_total": "Volumes",
+      "volumes_unused": "Ungenutzte Volumes",
+      "networks_total": "Netzwerke",
+      "image_storage": "Image-Speicher",
+      "docker_version": "Docker-Version"
     },
     "button": {
       "check_image_updates": {
@@ -82,10 +90,12 @@
     "step": {
       "init": {
         "title": "Arcane-Optionen",
-        "description": "Leer lassen = alle Hosts. Verschwundene Container, Projekte und Hosts werden nach der Wartezeit automatisch entfernt (0 = nie).",
+        "description": "Hosts leer lassen für alle. Events (arcane_container_state_changed, arcane_project_state_changed) können Automationen auslösen. Verschwundene Einträge werden nach der Karenzzeit entfernt (0 = nie).",
         "data": {
           "environments": "Hosts",
-          "stale_hours": "Wartezeit bis zum Entfernen (Stunden)"
+          "stale_hours": "Wartezeit bis zum Entfernen (Stunden)",
+          "scan_interval": "Abfrageintervall (Sekunden)",
+          "events": "Events bei Statuswechsel senden"
         }
       }
     }

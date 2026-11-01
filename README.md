@@ -19,8 +19,8 @@ The integration reads **all environments** (hosts) of your Arcane manager. Every
 | Device | What |
 |---|---|
 | **Arcane** (the manager) | Button "Clean up missing" |
-| **One per host** (e.g. *As-VPS*) | `binary_sensor` Online (stays available when the host is down). Sensors: containers running / stopped / total, projects running / stopped / total, images with updates, update check errors. Buttons: "Check image updates", "Update all" |
-| – per container | `switch` start/stop, `button` restart, `update` (install = redeploy with pull), `switch` auto-update (config, disabled by default) |
+| **One per host** (e.g. *As-VPS*) | `binary_sensor` Online (stays available when the host is down). Sensors: containers running / stopped / unhealthy / total, projects running / stopped / total, images total / unused / with updates, image storage (GB), volumes total / unused, networks, update check errors, Docker version (disabled by default). Buttons: "Check image updates", "Update all" |
+| – per container | `binary_sensor` unhealthy (only for containers with a Docker health check), `switch` start/stop, `button` restart, `update` (install = redeploy with pull), `switch` auto-update (config, disabled by default) |
 | – per project | `switch` compose up/down, `button` restart, `update` (install = pull all images and recreate; disabled by default) |
 
 Entity IDs follow the device name, e.g. `switch.as_vps_container_traefik_vps`.
@@ -55,6 +55,29 @@ data:
   dry_run: true
 response_variable: result   # {"hosts": {"As-VPS": {"checked": 18, "updated": 0, "skipped": 18, "failed": 0}}}
 ```
+
+## Events
+
+State changes between two polls fire events you can use as automation triggers (not on first load and not for a host that was offline in between):
+
+| Event | Data |
+|---|---|
+| `arcane_container_state_changed` | `environment`, `environment_id`, `container`, `state`, `previous_state`, `exit_code`, `crashed` (was running, stopped with a non-zero code), `oom_killed` (exit code 137) |
+| `arcane_project_state_changed` | `environment`, `environment_id`, `project`, `status`, `previous_status` |
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: arcane_container_state_changed
+    event_data:
+      crashed: true
+actions:
+  - action: notify.mobile_app_phone
+    data:
+      message: "{{ trigger.event.data.container }} on {{ trigger.event.data.environment }} stopped (exit {{ trigger.event.data.exit_code }})"
+```
+
+Events can be switched off in the options, where you can also set the polling interval (15 s to 1 h, default 60 s).
 
 ## Repairs and reconfiguring
 

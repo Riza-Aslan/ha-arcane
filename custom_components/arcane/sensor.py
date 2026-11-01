@@ -7,14 +7,16 @@ from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.sensor import (
+    SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
 )
+from homeassistant.const import EntityCategory, UnitOfInformation
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .coordinator import ArcaneConfigEntry, ArcaneCoordinator, EnvData
+from .coordinator import ArcaneConfigEntry, ArcaneCoordinator, EnvData, health
 from .entity import ArcaneEntity, add_dynamic
 
 
@@ -44,6 +46,55 @@ SENSORS: tuple[ArcaneSensorDescription, ...] = tuple(
         ("images_with_updates", "image_updates", "imagesWithUpdates"),
         ("image_update_errors", "image_updates", "errorsCount"),
     )
+)
+
+
+def _unhealthy(env: EnvData) -> int:
+    return sum(1 for c in env.containers.values() if health(c) == "unhealthy")
+
+
+SENSORS = SENSORS + (
+    ArcaneSensorDescription(
+        key="containers_unhealthy",
+        translation_key="containers_unhealthy",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=_unhealthy,
+    ),
+    *(
+        ArcaneSensorDescription(
+            key=key,
+            translation_key=key,
+            state_class=SensorStateClass.MEASUREMENT,
+            value_fn=_get(section, field),
+        )
+        for key, section, field in (
+            ("images_total", "image_counts", "totalImages"),
+            ("images_unused", "image_counts", "imagesUnused"),
+            ("volumes_total", "volume_counts", "total"),
+            ("volumes_unused", "volume_counts", "unused"),
+            ("networks_total", "network_counts", "total"),
+        )
+    ),
+    ArcaneSensorDescription(
+        key="image_storage",
+        translation_key="image_storage",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.GIGABYTES,
+        suggested_display_precision=2,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda e: (
+            None
+            if e.image_counts.get("totalImageSize") is None
+            else e.image_counts["totalImageSize"] / 1e9
+        ),
+    ),
+    ArcaneSensorDescription(
+        key="docker_version",
+        translation_key="docker_version",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda e: e.docker.get("ServerVersion"),
+    ),
 )
 
 

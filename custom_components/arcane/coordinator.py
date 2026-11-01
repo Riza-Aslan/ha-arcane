@@ -25,6 +25,11 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .api import ArcaneAuthError, ArcaneClient, ArcaneError, guarded
 from .const import (
     CONF_ENVIRONMENTS,
+    CONF_EVENTS,
+    CONF_SCAN_INTERVAL,
+    DEFAULT_SCAN_SECONDS,
+    EVENT_CONTAINER_STATE,
+    EVENT_PROJECT_STATE,
     CONF_STALE_HOURS,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_STALE_HOURS,
@@ -70,6 +75,10 @@ class EnvData:
     container_counts: dict[str, Any] = field(default_factory=dict)
     project_counts: dict[str, Any] = field(default_factory=dict)
     image_updates: dict[str, Any] = field(default_factory=dict)
+    image_counts: dict[str, Any] = field(default_factory=dict)
+    volume_counts: dict[str, Any] = field(default_factory=dict)
+    network_counts: dict[str, Any] = field(default_factory=dict)
+    docker: dict[str, Any] = field(default_factory=dict)
     containers: dict[str, dict] = field(default_factory=dict)  # key: container name
     projects: dict[str, dict] = field(default_factory=dict)  # key: project name
 
@@ -78,6 +87,21 @@ class EnvData:
 class ArcaneData:
     version: dict[str, Any] = field(default_factory=dict)
     environments: dict[str, EnvData] = field(default_factory=dict)
+
+
+_EXIT = re.compile(r"Exited \((-?\d+)\)")
+
+
+def exit_code(raw: dict) -> int | None:
+    """Exit code of a stopped container, parsed from Docker's status text."""
+    m = _EXIT.search(str(raw.get("status") or ""))
+    return int(m.group(1)) if m else None
+
+
+def health(raw: dict) -> str | None:
+    """healthy / unhealthy / starting when the container has a health check, else None."""
+    m = re.search(r"\((healthy|unhealthy|health: starting)\)", str(raw.get("status") or ""))
+    return None if not m else ("starting" if "starting" in m.group(1) else m.group(1))
 
 
 def container_name(raw: dict) -> str:
@@ -100,7 +124,9 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             _LOGGER,
             config_entry=entry,
             name=DOMAIN,
-            update_interval=DEFAULT_SCAN_INTERVAL,
+            update_interval=timedelta(
+                seconds=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_SECONDS)
+            ),
         )
         self.client = client
         self._store: Store[dict[str, float]] = Store(
@@ -200,6 +226,10 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             env.container_counts = prev.container_counts
             env.project_counts = prev.project_counts
             env.image_updates = prev.image_updates
+            env.image_counts = prev.image_counts
+            env.volume_counts = prev.volume_counts
+            env.network_counts = prev.network_counts
+            env.docker = prev.docker
             env.containers = prev.containers
             env.projects = prev.projects
         if not raw.get("enabled", True) or raw.get("status", "online") != "online":
@@ -217,6 +247,19 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             return env
         env.ok = True
         env.container_counts, env.project_counts, env.image_updates = cc, pc, iu
+        # Optional extras: a key without these permissions must not break the host.
+        extras = await asyncio.gather(
+            self.client.image_counts(env.id),
+            self.client.volume_counts(env.id),
+            self.client.network_counts(env.id),
+            *([] if env.docker else [self.client.docker_info(env.id)]),
+            return_exceptions=True,
+        )
+        for attr, res in zip(("image_counts", "volume_counts", "network_counts", "docker"), extras):
+            if isinstance(res, dict):
+                setattr(env, attr, res)
+            elif isinstance(res, Exception) and not isinstance(res, ArcaneError):
+                raise res
         env.containers = {
             n: c for c in containers if not _RECREATE_NAME.match(n := container_name(c))
         }
@@ -246,10 +289,50 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             data.version = await self.client.app_version()
         except ArcaneError:
             pass
+        self._fire_events(prev, data)
         await self._async_cleanup(data)
         self._settle_upgrades(data)
         self._sync_issues(data)
         return data
+
+    # --- events -------------------------------------------------------------
+
+    @callback
+    def _fire_events(self, prev: dict[str, EnvData], data: ArcaneData) -> None:
+        """Fire bus events for state changes seen between two polls (not on first sight)."""
+        if not self.config_entry.options.get(CONF_EVENTS, True):
+            return
+        for env in data.environments.values():
+            old = prev.get(env.id)
+            if old is None or not (old.ok and env.ok):
+                continue
+            base = {"environment": env.name, "environment_id": env.id}
+            for name, cont in env.containers.items():
+                was = old.containers.get(name)
+                if was is None or was.get("state") == cont.get("state"):
+                    continue
+                code = exit_code(cont)
+                self.hass.bus.async_fire(
+                    EVENT_CONTAINER_STATE,
+                    {
+                        **base,
+                        "container": name,
+                        "state": cont.get("state"),
+                        "previous_state": was.get("state"),
+                        "exit_code": code,
+                        "crashed": was.get("state") == "running" and bool(code),
+                        "oom_killed": was.get("state") == "running" and code == 137,
+                    },
+                )
+            for name, proj in env.projects.items():
+                was = old.projects.get(name)
+                if was is None or was.get("status") == proj.get("status"):
+                    continue
+                self.hass.bus.async_fire(
+                    EVENT_PROJECT_STATE,
+                    {**base, "project": name, "status": proj.get("status"),
+                     "previous_status": was.get("status")},
+                )
 
     # --- actions on a whole host -------------------------------------------
 

@@ -59,7 +59,15 @@
       },
       "image_update_errors": {
         "name": "Image update check errors"
-      }
+      },
+      "containers_unhealthy": "Unhealthy containers",
+      "images_total": "Images",
+      "images_unused": "Unused images",
+      "volumes_total": "Volumes",
+      "volumes_unused": "Unused volumes",
+      "networks_total": "Networks",
+      "image_storage": "Image storage",
+      "docker_version": "Docker version"
     },
     "button": {
       "check_image_updates": {
@@ -82,10 +90,12 @@
     "step": {
       "init": {
         "title": "Arcane options",
-        "description": "Leave empty for all hosts. Containers, projects and hosts that vanished are removed automatically after the grace period (0 = never).",
+        "description": "Leave the hosts empty for all. Events (arcane_container_state_changed, arcane_project_state_changed) can trigger automations. Vanished items are removed after the grace period (0 = never).",
         "data": {
           "environments": "Hosts",
-          "stale_hours": "Grace period before removal (hours)"
+          "stale_hours": "Grace period before removal (hours)",
+          "scan_interval": "Polling interval (seconds)",
+          "events": "Fire events on state changes"
         }
       }
     }

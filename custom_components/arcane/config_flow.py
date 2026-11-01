@@ -29,7 +29,10 @@ from .api import ArcaneAuthError, ArcaneClient, ArcaneError
 from .const import (
     CONF_API_KEY,
     CONF_ENVIRONMENTS,
+    CONF_EVENTS,
+    CONF_SCAN_INTERVAL,
     CONF_STALE_HOURS,
+    DEFAULT_SCAN_SECONDS,
     DEFAULT_STALE_HOURS,
     DOMAIN,
 )
@@ -176,6 +179,16 @@ class ArcaneOptionsFlow(OptionsFlowWithReload):
                             mode=SelectSelectorMode.DROPDOWN,
                         )
                     ),
+                    vol.Required(
+                        CONF_SCAN_INTERVAL,
+                        default=opts.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_SECONDS),
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=15, max=3600, step=5, mode=NumberSelectorMode.BOX,
+                            unit_of_measurement="s",
+                        )
+                    ),
+                    vol.Required(CONF_EVENTS, default=opts.get(CONF_EVENTS, True)): bool,
                     vol.Required(
                         CONF_STALE_HOURS, default=opts.get(CONF_STALE_HOURS, DEFAULT_STALE_HOURS)
                     ): NumberSelector(

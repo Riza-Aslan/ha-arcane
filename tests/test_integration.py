@@ -6,7 +6,7 @@ from homeassistant.const import CONF_URL
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import device_registry as dr, entity_registry as er
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import MockConfigEntry, async_capture_events
 
 from custom_components.arcane import migrate_unique_id
 from homeassistant.helpers import issue_registry as ir
@@ -501,3 +501,97 @@ async def test_host_devices_hang_below_the_manager_without_deprecation(hass, ser
         host = _device(hass, entry, f"{entry.entry_id}|{ident}")
         assert host.via_device_id == manager.id
     assert "via_device" not in caplog.text  # no deprecation warning from HA
+
+
+def _find(hass, entry, suffix):
+    reg = er.async_get(hass)
+    for e in er.async_entries_for_config_entry(reg, entry.entry_id):
+        if e.unique_id.endswith(suffix):
+            return e.entity_id
+    raise AssertionError(f"no entity ...{suffix}")
+
+
+async def test_resource_sensors(hass, server):
+    entry = await _setup(hass, server)
+    assert hass.states.get(_find(hass, entry, "|0|images_total")).state == "11"
+    assert hass.states.get(_find(hass, entry, "|0|images_unused")).state == "6"
+    assert hass.states.get(_find(hass, entry, "|0|volumes_unused")).state == "7"
+    assert hass.states.get(_find(hass, entry, "|0|networks_total")).state == "8"
+    assert float(hass.states.get(_find(hass, entry, "|0|image_storage")).state) == pytest.approx(2.13, abs=0.01)
+    assert hass.states.get(_find(hass, entry, "|0|containers_unhealthy")).state == "0"
+
+
+async def test_health_binary_sensor_only_for_containers_with_a_health_check(hass, server, state):
+    entry = await _setup(hass, server)
+    ok = _find(hass, entry, "|0|container_healthy|web")
+    assert hass.states.get(ok).state == "off"
+    reg = er.async_get(hass)
+    assert not [e for e in er.async_entries_for_config_entry(reg, entry.entry_id) if e.unique_id.endswith("|container_healthy|db")]
+    state["hosts"]["0"]["containers"][0]["status"] = "Up 2h (unhealthy)"
+    await _refresh(hass, entry)
+    assert hass.states.get(ok).state == "on"
+    assert hass.states.get(_find(hass, entry, "|0|containers_unhealthy")).state == "1"
+
+
+async def test_extras_failing_do_not_break_the_host(hass, server, state, monkeypatch):
+    from custom_components.arcane.api import ArcaneApiError, ArcaneClient
+
+    async def boom(self, env_id):
+        raise ArcaneApiError("HTTP 403", 403)
+
+    monkeypatch.setattr(ArcaneClient, "volume_counts", boom)
+    entry = await _setup(hass, server)
+    assert hass.states.get("binary_sensor.local_docker_online").state == "on"
+    assert hass.states.get(_find(hass, entry, "|0|images_total")).state == "11"
+    assert hass.states.get(_find(hass, entry, "|0|volumes_total")).state in ("unknown", "unavailable")
+
+
+async def test_event_when_a_container_crashes(hass, server, state):
+    entry = await _setup(hass, server)
+    events = async_capture_events(hass, "arcane_container_state_changed")
+    c = state["hosts"]["0"]["containers"][0]
+    c["state"], c["status"] = "exited", "Exited (137) 3 seconds ago"
+    await _refresh(hass, entry)
+    assert len(events) == 1
+    d = events[0].data
+    assert (d["container"], d["state"], d["previous_state"], d["exit_code"]) == ("web", "exited", "running", 137)
+    assert d["crashed"] is True and d["oom_killed"] is True and d["environment"] == "Local Docker"
+    # a clean stop (exit 0) is not a crash
+    c["state"], c["status"] = "running", "Up 1 second"
+    await _refresh(hass, entry)
+    c["state"], c["status"] = "exited", "Exited (0) 1 second ago"
+    await _refresh(hass, entry)
+    assert events[-1].data["crashed"] is False
+
+
+async def test_no_events_on_first_load_or_when_host_was_offline(hass, server, state):
+    events = async_capture_events(hass, "arcane_container_state_changed")
+    entry = await _setup(hass, server)
+    assert events == []
+    state["hosts"]["h2"]["status"] = "offline"
+    await _refresh(hass, entry)
+    state["hosts"]["h2"]["status"] = "online"
+    state["hosts"]["h2"]["containers"][0]["state"] = "exited"
+    await _refresh(hass, entry)
+    assert events == []  # came back from offline: no comparison possible
+
+
+async def test_events_can_be_switched_off_and_interval_is_configurable(hass, server, state):
+    entry = await _setup(hass, server)
+    hass.config_entries.async_update_entry(entry, options={"events": False, "scan_interval": 120})
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.update_interval.total_seconds() == 120
+    events = async_capture_events(hass, "arcane_container_state_changed")
+    state["hosts"]["0"]["containers"][0]["state"] = "exited"
+    await _refresh(hass, entry)
+    assert events == []
+
+
+async def test_diagnostics_contain_no_names_or_secrets(hass, server):
+    from custom_components.arcane.diagnostics import async_get_config_entry_diagnostics
+
+    entry = await _setup(hass, server)
+    out = str(await async_get_config_entry_diagnostics(hass, entry))
+    assert KEY not in out and "web" not in out and "127.0.0.1" not in out
+    assert "images_total" not in out and "'containers': 2" in out
