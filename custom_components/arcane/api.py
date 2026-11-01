@@ -25,6 +25,10 @@ class ArcaneAuthError(ArcaneError):
 class ArcaneApiError(ArcaneError):
     """Arcane answered with an error."""
 
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
+
 
 class ArcaneClient:
     """Talks to an Arcane manager; every call names its environment (host)."""
@@ -55,7 +59,7 @@ class ArcaneClient:
                     raise ArcaneAuthError(f"HTTP {resp.status} for {path}")
                 if resp.status >= 400:
                     text = (await resp.text())[:200]
-                    raise ArcaneApiError(f"HTTP {resp.status} for {path}: {text}")
+                    raise ArcaneApiError(f"HTTP {resp.status} for {path}: {text}", resp.status)
                 if resp.status == 204:
                     return None
                 return await resp.json(content_type=None)
@@ -75,7 +79,7 @@ class ArcaneClient:
                     raise ArcaneAuthError(f"HTTP {resp.status} for {path}")
                 if resp.status >= 400:
                     text = (await resp.text())[:200]
-                    raise ArcaneApiError(f"HTTP {resp.status} for {path}: {text}")
+                    raise ArcaneApiError(f"HTTP {resp.status} for {path}: {text}", resp.status)
                 async for raw in resp.content:
                     line = raw.decode("utf-8", "replace").strip()
                     if not line:

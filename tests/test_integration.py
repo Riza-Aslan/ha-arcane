@@ -292,3 +292,77 @@ async def test_arcane_agent_uses_system_upgrade_not_redeploy(hass, server, state
     state["calls"].clear()
     await hass.services.async_call("update", "install", {"entity_id": ent}, blocking=True)
     assert state["calls"] == [("POST", "/api/environments/h2/system/upgrade")]
+
+
+AGENT = "update.as_vps_container_arcane_edge_agent"
+
+
+async def test_agent_upgrade_shows_progress_until_container_is_replaced(hass, server, state):
+    entry = await _setup(hass, server)
+    assert hass.states.get(AGENT).attributes["in_progress"] is False
+    await hass.services.async_call("update", "install", {"entity_id": AGENT}, blocking=True)
+    # the call returned at once, but the update is still running
+    assert hass.states.get(AGENT).attributes["in_progress"] is True
+    assert entry.runtime_data.is_upgrading("h2", "arcane-edge-agent")
+    # host goes offline while the agent restarts: entity stays visible and in progress
+    state["hosts"]["h2"]["status"] = "offline"
+    await _refresh(hass, entry)
+    s = hass.states.get(AGENT)
+    assert s.state != "unavailable" and s.attributes["in_progress"] is True
+    # host is back with a recreated container: progress ends
+    state["hosts"]["h2"]["status"] = "online"
+    state["hosts"]["h2"]["containers"][1]["id"] = "ag-new"
+    state["hosts"]["h2"]["containers"][1]["updateInfo"]["hasUpdate"] = False
+    await _refresh(hass, entry)
+    assert hass.states.get(AGENT).attributes["in_progress"] is False
+    assert not entry.runtime_data.is_upgrading("h2", "arcane-edge-agent")
+
+
+async def test_progress_ends_when_host_returns_even_with_same_container_id(hass, server, state):
+    entry = await _setup(hass, server)
+    await hass.services.async_call("update", "install", {"entity_id": AGENT}, blocking=True)
+    state["hosts"]["h2"]["status"] = "offline"
+    await _refresh(hass, entry)
+    state["hosts"]["h2"]["status"] = "online"
+    await _refresh(hass, entry)
+    assert hass.states.get(AGENT).attributes["in_progress"] is False
+
+
+async def test_progress_times_out(hass, server, state, monkeypatch):
+    import custom_components.arcane.coordinator as co
+
+    entry = await _setup(hass, server)
+    await hass.services.async_call("update", "install", {"entity_id": AGENT}, blocking=True)
+    real = co.time.time
+    monkeypatch.setattr(co.time, "time", lambda: real() + co.UPGRADE_TIMEOUT + 5)
+    await _refresh(hass, entry)
+    assert hass.states.get(AGENT).attributes["in_progress"] is False
+
+
+async def test_agent_upgrade_conflict_is_not_an_error(hass, server, state):
+    """409 = upgrade already running (e.g. a second click): keep showing progress."""
+    state["upgrade_status"] = 409
+    entry = await _setup(hass, server)
+    await hass.services.async_call("update", "install", {"entity_id": AGENT}, blocking=True)
+    assert hass.states.get(AGENT).attributes["in_progress"] is True
+
+
+async def test_agent_upgrade_failure_clears_progress_and_explains(hass, server, state):
+    from homeassistant.exceptions import HomeAssistantError
+
+    state["upgrade_status"] = 403
+    await _setup(hass, server)
+    with pytest.raises(HomeAssistantError, match="system:upgrade"):
+        await hass.services.async_call("update", "install", {"entity_id": AGENT}, blocking=True)
+    assert hass.states.get(AGENT).attributes["in_progress"] is False
+    state["upgrade_status"] = 500
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call("update", "install", {"entity_id": AGENT}, blocking=True)
+    assert hass.states.get(AGENT).attributes["in_progress"] is False
+
+
+async def test_normal_redeploy_clears_progress_afterwards(hass, server, state):
+    await _setup(hass, server)
+    await hass.services.async_call(
+        "update", "install", {"entity_id": "update.local_docker_container_web"}, blocking=True)
+    assert hass.states.get("update.local_docker_container_web").attributes["in_progress"] is False

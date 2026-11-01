@@ -39,6 +39,8 @@ Containers and projects come and go. Home Assistant keeps entities of things tha
 
 Arcane refuses to redeploy its own manager and agents (`redeployDisabled`), because the container would end its own request. For those containers the *Install* button of the update entity calls Arcane's self-upgrade (`POST /system/upgrade`) instead, which starts a separate upgrader container. This needs the API key permission `system:upgrade`. The agent restarts and its host is briefly unavailable.
 
+While an update runs, the update entity shows **in progress** and the integration polls every 15 seconds. It ends when the container was replaced (or the host came back after a restart), at the latest after 15 minutes. A second click while an upgrade is already running is harmless.
+
 ## Install
 
 [![Open your Home Assistant instance and open this repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Riza-Aslan&repository=ha-arcane&category=integration)

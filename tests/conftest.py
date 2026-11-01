@@ -83,7 +83,13 @@ def make_app(state):
     r.add_post("/api/environments/{eid}/projects/{pid}/down", action)
     r.add_post("/api/environments/{eid}/projects/{pid}/restart", action)
     r.add_post("/api/environments/{eid}/image-updates/check-all", action)
-    r.add_post("/api/environments/{eid}/system/upgrade", action)
+    async def upgrade(request):
+        calls.append((request.method, request.path))
+        if state.get("upgrade_status"):
+            return web.json_response({"title": "x", "detail": "boom"}, status=state["upgrade_status"])
+        return _env({"message": "started"})
+
+    r.add_post("/api/environments/{eid}/system/upgrade", upgrade)
     return app
 
 

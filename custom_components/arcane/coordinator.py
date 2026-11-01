@@ -6,13 +6,15 @@ import asyncio
 import logging
 import re
 import time
+from datetime import timedelta
 from dataclasses import dataclass, field
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -34,6 +36,18 @@ type ArcaneConfigEntry = ConfigEntry[ArcaneCoordinator]
 # While Docker recreates a container, the old one is renamed "<12 hex>_<name>".
 # That is a transient artefact, not a real container: never create entities for it.
 _RECREATE_NAME = re.compile(r"^[0-9a-f]{12}_")
+
+# While a container is being updated, poll faster and show progress; give up after this.
+UPGRADE_POLL = timedelta(seconds=15)
+UPGRADE_TIMEOUT = 15 * 60
+
+
+@dataclass
+class _Upgrade:
+    since: float
+    container_id: str | None
+    blocking: bool  # the API call itself runs until done (redeploy); the entity unmarks it
+    saw_offline: bool = False
 
 
 @dataclass
@@ -84,9 +98,80 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
             hass, 1, f"{DOMAIN}.{entry.entry_id}.missing"
         )
         self._missing: dict[str, float] = {}  # entity_id -> first time seen missing
+        self._upgrading: dict[tuple[str, str], _Upgrade] = {}
+        self._watch: CALLBACK_TYPE | None = None
 
     async def _async_setup(self) -> None:
         self._missing = await self._store.async_load() or {}
+
+    # --- update progress ----------------------------------------------------
+
+    def is_upgrading(self, env_id: str, name: str) -> bool:
+        return (env_id, name) in self._upgrading
+
+    @callback
+    def mark_upgrading(
+        self, env_id: str, name: str, container_id: str | None, *, blocking: bool
+    ) -> None:
+        """Show an update as in progress and poll faster until it has landed."""
+        self._upgrading[(env_id, name)] = _Upgrade(time.time(), container_id, blocking)
+        if self._watch is None:
+            self._watch = async_track_time_interval(
+                self.hass, self._watch_tick, UPGRADE_POLL, cancel_on_shutdown=True
+            )
+        self.async_update_listeners()
+
+    @callback
+    def unmark_upgrading(self, env_id: str, name: str) -> None:
+        self._upgrading.pop((env_id, name), None)
+        self._stop_watch_if_idle()
+        self.async_update_listeners()
+
+    @callback
+    def _stop_watch_if_idle(self) -> None:
+        if not self._upgrading and self._watch is not None:
+            self._watch()
+            self._watch = None
+
+    async def _watch_tick(self, _now: Any) -> None:
+        self._expire_upgrades()
+        if self._upgrading:
+            await self.async_request_refresh()
+
+    @callback
+    def _expire_upgrades(self) -> None:
+        now = time.time()
+        for key, up in list(self._upgrading.items()):
+            if now - up.since > UPGRADE_TIMEOUT:
+                _LOGGER.warning("Update of %s on %s did not finish in time", key[1], key[0])
+                del self._upgrading[key]
+        self._stop_watch_if_idle()
+        self.async_update_listeners()
+
+    @callback
+    def _note_manager_offline(self) -> None:
+        for up in self._upgrading.values():
+            up.saw_offline = True
+
+    @callback
+    def _settle_upgrades(self, data: ArcaneData) -> None:
+        """An update has landed once the container was recreated or the host came back."""
+        for key, up in list(self._upgrading.items()):
+            if up.blocking:
+                continue
+            env = data.environments.get(key[0])
+            if env is not None and not env.ok:
+                up.saw_offline = True
+                continue
+            container = env.containers.get(key[1]) if env else None
+            if (
+                env is None
+                or container is None
+                or (up.container_id and container.get("id") != up.container_id)
+                or up.saw_offline
+            ):
+                del self._upgrading[key]
+        self._expire_upgrades()
 
     # --- polling ------------------------------------------------------------
 
@@ -130,6 +215,7 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
         except ArcaneAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except ArcaneError as err:
+            self._note_manager_offline()
             raise UpdateFailed(f"Arcane not reachable: {err}") from err
 
         wanted = {str(i) for i in (self.config_entry.options.get(CONF_ENVIRONMENTS) or [])}
@@ -147,6 +233,7 @@ class ArcaneCoordinator(DataUpdateCoordinator[ArcaneData]):
         except ArcaneError:
             pass
         await self._async_cleanup(data)
+        self._settle_upgrades(data)
         return data
 
     # --- tidy up ------------------------------------------------------------
