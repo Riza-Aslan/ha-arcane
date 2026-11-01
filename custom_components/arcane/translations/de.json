@@ -60,14 +60,30 @@
       "image_update_errors": {
         "name": "Fehler bei Update-Prüfung"
       },
-      "containers_unhealthy": "Container nicht gesund",
-      "images_total": "Images",
-      "images_unused": "Ungenutzte Images",
-      "volumes_total": "Volumes",
-      "volumes_unused": "Ungenutzte Volumes",
-      "networks_total": "Netzwerke",
-      "image_storage": "Image-Speicher",
-      "docker_version": "Docker-Version"
+      "containers_unhealthy": {
+        "name": "Container nicht gesund"
+      },
+      "images_total": {
+        "name": "Images"
+      },
+      "images_unused": {
+        "name": "Ungenutzte Images"
+      },
+      "volumes_total": {
+        "name": "Volumes"
+      },
+      "volumes_unused": {
+        "name": "Ungenutzte Volumes"
+      },
+      "networks_total": {
+        "name": "Netzwerke"
+      },
+      "image_storage": {
+        "name": "Image-Speicher"
+      },
+      "docker_version": {
+        "name": "Docker-Version"
+      }
     },
     "button": {
       "check_image_updates": {

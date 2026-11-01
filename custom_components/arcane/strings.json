@@ -60,14 +60,30 @@
       "image_update_errors": {
         "name": "Image update check errors"
       },
-      "containers_unhealthy": "Unhealthy containers",
-      "images_total": "Images",
-      "images_unused": "Unused images",
-      "volumes_total": "Volumes",
-      "volumes_unused": "Unused volumes",
-      "networks_total": "Networks",
-      "image_storage": "Image storage",
-      "docker_version": "Docker version"
+      "containers_unhealthy": {
+        "name": "Unhealthy containers"
+      },
+      "images_total": {
+        "name": "Images"
+      },
+      "images_unused": {
+        "name": "Unused images"
+      },
+      "volumes_total": {
+        "name": "Volumes"
+      },
+      "volumes_unused": {
+        "name": "Unused volumes"
+      },
+      "networks_total": {
+        "name": "Networks"
+      },
+      "image_storage": {
+        "name": "Image storage"
+      },
+      "docker_version": {
+        "name": "Docker version"
+      }
     },
     "button": {
       "check_image_updates": {
