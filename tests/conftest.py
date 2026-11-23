@@ -30,7 +30,7 @@ def make_app(state):
 
     @web.middleware
     async def auth(request, handler):
-        if request.path not in ("/api/health", "/api/app-version") and request.headers.get("X-Api-Key") != KEY:
+        if request.path not in ("/api/health", "/api/app/version") and request.headers.get("X-Api-Key") != KEY:
             return web.json_response({"success": False}, status=401)
         return await handler(request)
 
@@ -50,46 +50,53 @@ def make_app(state):
         return h
 
     get("/api/health", lambda _r: web.json_response({"status": "UP"}))
-    get("/api/app-version", lambda _r: _env({"currentVersion": "2.10.0", "displayVersion": "v2.10.0"}))
-    get("/api/environments", lambda _r: _page(
+    get("/api/app/version", lambda _r: web.json_response({"currentVersion": "v3.1.1", "currentTag": "latest"}))
+    get("/api/agents", lambda _r: _page(
         [{"id": i, "name": h["name"], "status": h.get("status", "online"), "enabled": True, "isEdge": i != "0"}
          for i, h in state["hosts"].items()]))
-    get("/api/environments/{eid}/containers/counts", lambda q: _env({
+    get("/api/agents/{eid}/containers/counts", lambda q: _env({
         "runningContainers": sum(c["state"] == "running" for c in host(q)["containers"]),
         "stoppedContainers": sum(c["state"] != "running" for c in host(q)["containers"]),
         "totalContainers": len(host(q)["containers"])}))
-    get("/api/environments/{eid}/projects/counts", lambda q: _env({
+    get("/api/agents/{eid}/projects/counts", lambda q: _env({
         "runningProjects": len(host(q)["projects"]), "stoppedProjects": 0, "totalProjects": len(host(q)["projects"])}))
-    get("/api/environments/{eid}/image-updates/summary", lambda q: _env(
+    get("/api/agents/{eid}/images/updates/summary", lambda q: _env(
         {"totalImages": 2, "imagesWithUpdates": 1, "digestUpdates": 1, "errorsCount": 0}))
-    get("/api/environments/{eid}/containers", lambda q: _page(host(q)["containers"]))
-    get("/api/environments/{eid}/projects", lambda q: _page(host(q)["projects"]))
+    get("/api/agents/{eid}/containers", lambda q: _page(host(q)["containers"]))
+    get("/api/agents/{eid}/projects", lambda q: _page(host(q)["projects"]))
 
     async def action(request):
         calls.append((request.method, request.path))
         return _env({"message": "ok"})
 
-    async def up(request):
-        calls.append((request.method, request.path))
+    async def up_stream(request):
         resp = web.StreamResponse(headers={"Content-Type": "application/x-ndjson"})
         await resp.prepare(request)
         for line in ({"activityId": "a1"}, {"log": "pulling"}, {"done": True}):
             await resp.write((json.dumps(line) + "\n").encode())
         return resp
 
-    for p in ("start", "stop", "restart", "redeploy"):
-        r.add_post(f"/api/environments/{{eid}}/containers/{{cid}}/{p}", action)
-    r.add_post("/api/environments/{eid}/projects/{pid}/up", up)
-    r.add_post("/api/environments/{eid}/projects/{pid}/down", action)
-    r.add_post("/api/environments/{eid}/projects/{pid}/restart", action)
-    r.add_post("/api/environments/{eid}/image-updates/check-all", action)
+    async def query_action(request):
+        # v3: one route per kind, the verb travels in ?action=
+        calls.append((request.method, request.path, request.query["action"]))
+        return _env({"message": "ok"})
+
+    async def deploy(request):
+        calls.append((request.method, request.path, request.query["action"]))
+        return await up_stream(request)
+
+    r.add_post("/api/agents/{eid}/containers/{cid}/redeploy", action)
+    r.add_post("/api/agents/{eid}/containers/{cid}", query_action)
+    r.add_post("/api/agents/{eid}/projects/{pid}/deploy", deploy)
+    r.add_post("/api/agents/{eid}/projects/{pid}", query_action)
+    r.add_post("/api/agents/{eid}/images/updates/check", query_action)
     async def upgrade(request):
         calls.append((request.method, request.path))
         if state.get("upgrade_status"):
             return web.json_response({"title": "x", "detail": "boom"}, status=state["upgrade_status"])
         return _env({"message": "started"})
 
-    r.add_post("/api/environments/{eid}/system/upgrade", upgrade)
+    r.add_post("/api/agents/{eid}/system/upgrade", upgrade)
 
     async def stats_ws(request):
         calls.append(("WS", request.path))
@@ -104,13 +111,13 @@ def make_app(state):
         calls.append((request.method, request.path, await request.json()))
         return _env({"imagesDeleted": ["a", "b", "c"], "spaceReclaimed": 123456})
 
-    r.add_get("/api/environments/{eid}/ws/system/stats", stats_ws)
-    r.add_post("/api/environments/{eid}/images/prune", prune)
-    get("/api/environments/{eid}/images/counts", lambda q: _env({
+    r.add_get("/api/agents/{eid}/ws/system/stats", stats_ws)
+    r.add_post("/api/agents/{eid}/images/prune", prune)
+    get("/api/agents/{eid}/images/counts", lambda q: _env({
         "imagesInuse": 5, "imagesUnused": 6, "totalImages": 11, "totalImageSize": 2_134_602_826}))
-    get("/api/environments/{eid}/volumes/counts", lambda q: _env({"inuse": 5, "unused": 7, "total": 12}))
-    get("/api/environments/{eid}/networks/counts", lambda q: _env({"inuse": 8, "unused": 0, "total": 8}))
-    get("/api/environments/{eid}/system/docker/info", lambda q: web.json_response({"ServerVersion": "28.1.1", "Containers": 6}))
+    get("/api/agents/{eid}/volumes/counts", lambda q: _env({"inuse": 5, "unused": 7, "total": 12}))
+    get("/api/agents/{eid}/networks/counts", lambda q: _env({"inuse": 8, "unused": 0, "total": 8}))
+    get("/api/agents/{eid}/system/docker/info", lambda q: web.json_response({"ServerVersion": "28.1.1", "Containers": 6}))
 
     async def autoupdate(request):
         calls.append((request.method, request.path, await request.json()))
@@ -122,9 +129,8 @@ def make_app(state):
             return web.json_response({"title": "x"}, status=state["updater_status"])
         return _env({"checked": 3, "updated": 2, "skipped": 1, "failed": 0})
 
-    r.add_put("/api/environments/{eid}/containers/{cid}/auto-update", autoupdate)
-    r.add_post("/api/environments/{eid}/updater/run", run_updater)
-    r.add_post("/api/environments/{eid}/projects/{pid}/redeploy", up)
+    r.add_put("/api/agents/{eid}/containers/{cid}/autoupdate", autoupdate)
+    r.add_post("/api/agents/{eid}/updater/run", run_updater)
     return app
 
 

@@ -113,7 +113,8 @@ If the key is revoked or expires, Home Assistant starts a re-authentication flow
 ## Tested
 
 - `pytest` (under a second, no network) runs the integration in a real Home Assistant test harness against a fake Arcane server: config flow (good key, bad key, unreachable), entity states, all actions including the streaming `/up`, dynamic entities, digest updates and re-auth.
-- Read path verified against a live **Arcane v2.16.1** (config flow, all sensors, container switch/button/update entity). An API key with only `containers:list`, `projects:list`, `image-updates:read` and `environments:list` is enough to set up and read everything. Add `containers:start|stop|restart|redeploy|autoupdate`, `projects:deploy|down|restart`, `image-updates:check`, `system:upgrade`, `system:read` (host statistics) and `images:prune` for the switches, buttons, services and *Install*.
+- **Requires Arcane v3** (API under `/agents/{id}/…`). Arcane 2.x needs integration v0.6.0 or older.
+- Read path verified against a live **Arcane v3.1.1** (config flow, all sensors, container and project lists, update info, host statistics) and earlier against v2.16.1 (config flow, all sensors, container switch/button/update entity). An API key with only `containers:list`, `projects:list`, `image-updates:read` and `environments:list` is enough to set up and read everything. Add `containers:start|stop|restart|redeploy|autoupdate`, `projects:deploy|down|restart`, `image-updates:check`, `system:upgrade`, `system:read` (host statistics) and `images:prune` for the switches, buttons, services and *Install*.
 - Write actions (start/stop/restart/redeploy, project up/down) are covered by the fake server only, not yet against a live instance.
 
 ```bash

@@ -55,7 +55,7 @@ class ArcaneClient:
 
     def _guard_write(self, method: str, path: str) -> None:
         # checking images for updates only reads from registries, it changes nothing
-        if self.read_only and method != "GET" and not path.endswith("/image-updates/check-all"):
+        if self.read_only and method != "GET" and not path.endswith("/images/updates/check"):
             raise ArcaneApiError("Control is switched off in the Arcane options (read only)")
 
     async def _request(
@@ -89,13 +89,23 @@ class ArcaneClient:
         except (aiohttp.ClientError, TimeoutError) as err:
             raise ArcaneConnectionError(str(err)) from err
 
-    async def _stream(self, method: str, path: str, timeout: float = 600) -> None:
+    async def _stream(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json_body: Any = None,
+        timeout: float = 600,
+    ) -> None:
         """Run a streaming (NDJSON) operation until `done` or `error`."""
         self._guard_write(method, path)
         try:
             async with self._session.request(
                 method,
                 self._base + path,
+                params=params,
+                json=json_body,
                 headers=self._headers,
                 timeout=aiohttp.ClientTimeout(total=timeout, sock_read=timeout),
             ) as resp:
@@ -135,7 +145,7 @@ class ArcaneClient:
 
     @staticmethod
     def _env(env_id: str) -> str:
-        return f"/environments/{env_id}"
+        return f"/agents/{env_id}"
 
     # --- read ---------------------------------------------------------------
 
@@ -145,11 +155,11 @@ class ArcaneClient:
         return True
 
     async def app_version(self) -> dict[str, Any]:
-        body = await self._request("GET", "/app-version", auth=False)
+        body = await self._request("GET", "/app/version", auth=False)
         return (body or {}).get("data", body) or {}
 
     async def environments(self) -> list[dict]:
-        return await self._paged("/environments")
+        return await self._paged("/agents")
 
     async def container_counts(self, env_id: str) -> dict[str, Any]:
         body = await self._request("GET", f"{self._env(env_id)}/containers/counts")
@@ -160,7 +170,7 @@ class ArcaneClient:
         return (body or {}).get("data", {})
 
     async def image_update_summary(self, env_id: str) -> dict[str, Any]:
-        body = await self._request("GET", f"{self._env(env_id)}/image-updates/summary")
+        body = await self._request("GET", f"{self._env(env_id)}/images/updates/summary")
         return (body or {}).get("data", {})
 
     async def _data(self, path: str) -> dict[str, Any]:
@@ -218,7 +228,10 @@ class ArcaneClient:
     async def container_action(self, env_id: str, container_id: str, action: str) -> None:
         """action: start | stop | restart."""
         await self._request(
-            "POST", f"{self._env(env_id)}/containers/{container_id}/{action}", timeout=120
+            "POST",
+            f"{self._env(env_id)}/containers/{container_id}",
+            params={"action": action},
+            timeout=120,
         )
 
     async def container_redeploy(self, env_id: str, container_id: str) -> None:
@@ -237,7 +250,11 @@ class ArcaneClient:
     async def project_redeploy(self, env_id: str, project_id: str) -> None:
         """Pull the images and recreate the project (streams until done)."""
         await self._stream(
-            "POST", f"{self._env(env_id)}/projects/{project_id}/redeploy", timeout=1200
+            "POST",
+            f"{self._env(env_id)}/projects/{project_id}/deploy",
+            params={"action": "redeploy"},
+            json_body={},
+            timeout=1200,
         )
 
     async def set_container_auto_update(
@@ -245,7 +262,7 @@ class ArcaneClient:
     ) -> None:
         await self._request(
             "PUT",
-            f"{self._env(env_id)}/containers/{container_id}/auto-update",
+            f"{self._env(env_id)}/containers/{container_id}/autoupdate",
             json_body={"enabled": enabled},
         )
 
@@ -261,19 +278,34 @@ class ArcaneClient:
         return (body or {}).get("data") or {}
 
     async def project_up(self, env_id: str, project_id: str) -> None:
-        await self._stream("POST", f"{self._env(env_id)}/projects/{project_id}/up")
+        await self._stream(
+            "POST",
+            f"{self._env(env_id)}/projects/{project_id}/deploy",
+            params={"action": "up"},
+            json_body={},
+        )
 
     async def project_down(self, env_id: str, project_id: str) -> None:
         await self._request(
-            "POST", f"{self._env(env_id)}/projects/{project_id}/down", timeout=300
+            "POST",
+            f"{self._env(env_id)}/projects/{project_id}",
+            params={"action": "down"},
+            timeout=300,
         )
 
     async def project_restart(self, env_id: str, project_id: str) -> None:
         await self._request(
-            "POST", f"{self._env(env_id)}/projects/{project_id}/restart", timeout=300
+            "POST",
+            f"{self._env(env_id)}/projects/{project_id}",
+            params={"action": "restart"},
+            timeout=300,
         )
 
     async def check_all_image_updates(self, env_id: str) -> None:
         await self._request(
-            "POST", f"{self._env(env_id)}/image-updates/check-all", timeout=600
+            "POST",
+            f"{self._env(env_id)}/images/updates/check",
+            params={"action": "all"},
+            json_body={},
+            timeout=600,
         )

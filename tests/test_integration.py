@@ -109,14 +109,14 @@ async def test_actions_hit_the_right_host(hass, server, state):
     await svc("button", "press", "button.as_vps_check_image_updates")
     await svc("update", "install", "update.local_docker_container_web")
     assert state["calls"] == [
-        ("POST", "/api/environments/0/containers/c1/stop"),
-        ("POST", "/api/environments/h2/containers/v1/stop"),
-        ("POST", "/api/environments/h2/containers/v1/restart"),
-        ("POST", "/api/environments/0/projects/p1/up"),
-        ("POST", "/api/environments/0/projects/p1/down"),
-        ("POST", "/api/environments/0/projects/p1/restart"),
-        ("POST", "/api/environments/h2/image-updates/check-all"),
-        ("POST", "/api/environments/0/containers/c1/redeploy"),
+        ("POST", "/api/agents/0/containers/c1", "stop"),
+        ("POST", "/api/agents/h2/containers/v1", "stop"),
+        ("POST", "/api/agents/h2/containers/v1", "restart"),
+        ("POST", "/api/agents/0/projects/p1/deploy", "up"),
+        ("POST", "/api/agents/0/projects/p1", "down"),
+        ("POST", "/api/agents/0/projects/p1", "restart"),
+        ("POST", "/api/agents/h2/images/updates/check", "all"),
+        ("POST", "/api/agents/0/containers/c1/redeploy"),
     ]
 
 
@@ -292,7 +292,7 @@ async def test_arcane_agent_uses_system_upgrade_not_redeploy(hass, server, state
     assert hass.states.get(ent).state == "on"
     state["calls"].clear()
     await hass.services.async_call("update", "install", {"entity_id": ent}, blocking=True)
-    assert state["calls"] == [("POST", "/api/environments/h2/system/upgrade")]
+    assert state["calls"] == [("POST", "/api/agents/h2/system/upgrade")]
 
 
 AGENT = "update.as_vps_container_arcane_edge_agent"
@@ -401,13 +401,13 @@ async def test_update_all_button_and_service(hass, server, state):
     state["calls"].clear()
     await hass.services.async_call("button", "press", {"entity_id": "button.as_vps_update_all"}, blocking=True)
     await hass.async_block_till_done()
-    assert state["calls"] == [("POST", "/api/environments/h2/updater/run", "true", {"dryRun": False})]
+    assert state["calls"] == [("POST", "/api/agents/h2/updater/run", "true", {"dryRun": False})]
     dev = _device(hass, entry, f"{entry.entry_id}|h2")
     state["calls"].clear()
     out = await hass.services.async_call(
         DOMAIN, "update_all", {"device_id": dev.id, "dry_run": True}, blocking=True, return_response=True)
     assert out == {"hosts": {"As-VPS": {"checked": 3, "updated": 2, "skipped": 1, "failed": 0}}}
-    assert state["calls"] == [("POST", "/api/environments/h2/updater/run", "true", {"dryRun": True})]
+    assert state["calls"] == [("POST", "/api/agents/h2/updater/run", "true", {"dryRun": True})]
 
 
 async def test_update_all_marks_progress_and_reports_errors(hass, server, state):
@@ -426,7 +426,7 @@ async def test_check_updates_service(hass, server, state):
     dev = _device(hass, entry, f"{entry.entry_id}|h2")
     state["calls"].clear()
     await hass.services.async_call(DOMAIN, "check_updates", {"device_id": dev.id}, blocking=True)
-    assert state["calls"] == [("POST", "/api/environments/h2/image-updates/check-all")]
+    assert state["calls"] == [("POST", "/api/agents/h2/images/updates/check", "all")]
 
 
 async def test_services_reject_the_manager_device(hass, server):
@@ -445,7 +445,7 @@ async def test_auto_update_switch(hass, server, state):
     assert hass.states.get(ent).state == "on"
     state["calls"].clear()
     await hass.services.async_call("switch", "turn_off", {"entity_id": ent}, blocking=True)
-    assert state["calls"] == [("PUT", "/api/environments/h2/containers/v1/auto-update", {"enabled": False})]
+    assert state["calls"] == [("PUT", "/api/agents/h2/containers/v1/autoupdate", {"enabled": False})]
 
 
 async def test_project_update_entity(hass, server, state):
@@ -457,7 +457,7 @@ async def test_project_update_entity(hass, server, state):
     assert s.attributes["services_with_updates"] == ["app"]
     state["calls"].clear()
     await hass.services.async_call("update", "install", {"entity_id": ent}, blocking=True)
-    assert state["calls"] == [("POST", "/api/environments/0/projects/p1/redeploy")]
+    assert state["calls"] == [("POST", "/api/agents/0/projects/p1/deploy", "redeploy")]
     assert hass.states.get(ent).attributes["in_progress"] is False
 
 
@@ -607,7 +607,7 @@ async def test_prune_images_only_sends_image_mode_and_reports(hass, server, stat
     await hass.async_block_till_done()
     state["calls"].clear()
     await hass.services.async_call("button", "press", {"entity_id": btn}, blocking=True)
-    assert state["calls"] == [("POST", "/api/environments/h2/images/prune", {"mode": "all"})]
+    assert state["calls"] == [("POST", "/api/agents/h2/images/prune", {"mode": "all"})]
     dev = _device(hass, entry, f"{entry.entry_id}|h2")
     out = await hass.services.async_call(DOMAIN, "prune_images", {"device_id": dev.id}, blocking=True, return_response=True)
     assert out == {"hosts": {"As-VPS": {"images_deleted": 3, "space_reclaimed": 123456}}}
@@ -621,7 +621,7 @@ async def test_host_stats_only_fetched_when_a_stat_entity_is_enabled(hass, serve
         reg.async_update_entity(_find(hass, entry, f"|h2|{key}"), disabled_by=None)
     await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
-    assert [c for c in state["calls"] if c[0] == "WS"] == [("WS", "/api/environments/h2/ws/system/stats")]  # h2 only
+    assert [c for c in state["calls"] if c[0] == "WS"] == [("WS", "/api/agents/h2/ws/system/stats")]  # h2 only
     assert float(hass.states.get(_find(hass, entry, "|h2|cpu_usage")).state) == pytest.approx(38.2)
     assert float(hass.states.get(_find(hass, entry, "|h2|memory_usage")).state) == 50.0
     assert float(hass.states.get(_find(hass, entry, "|h2|disk_usage")).state) == 25.0
@@ -644,7 +644,7 @@ async def test_read_only_blocks_every_write_but_not_reads_or_update_checks(hass,
         await hass.services.async_call(DOMAIN, "prune_images", {"device_id": _device(hass, entry, f"{entry.entry_id}|h2").id}, blocking=True)
     assert [c for c in state["calls"] if c[0] != "GET"] == []
     await hass.services.async_call("button", "press", {"entity_id": "button.as_vps_check_image_updates"}, blocking=True)
-    assert [c[1] for c in state["calls"] if c[0] == "POST"] == ["/api/environments/h2/image-updates/check-all"]
+    assert [c[1] for c in state["calls"] if c[0] == "POST"] == ["/api/agents/h2/images/updates/check"]
 
 
 async def test_container_state_and_project_services_sensors(hass, server):
